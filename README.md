@@ -265,13 +265,13 @@ xhs-blogger-analyzer/
 | WorkBuddy | `python install.py` | ✅ 已验证 | 推荐平台 |
 | Claude Code | `python install.py` | ✅ 已验证 | SKILL.md 兼容 |
 
-### 多模型测试结果
+### 爬取80条笔记-多模型测试结果
 
 | AI 模型 | 综合评分 | 耗时 | 产出格式 | 分析深度 |
 |---------|---------|------|---------|---------|
 | Claude Opus 4.6 | ⭐ 84/100 | ~60min | Word (.docx) | 🟢 最佳 |
-| Claude Sonnet 4.6 | 76/100 | ~60min | PDF | 🟡 中上 |
-| MiniMax 2.7 | 71/100 | ~35min | PDF | 🟡 中等 |
+| Claude Sonnet 4.6 | 76/100 | ~60min | Word | 🟡 中上 |
+| MiniMax 2.7 | 71/100 | ~35min | Word | 🟡 中等 |
 
 ---
 
