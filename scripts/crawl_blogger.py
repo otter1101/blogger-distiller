@@ -189,20 +189,48 @@ def search_supplement(client, keyword, user_id, existing_notes, extra_keywords=N
 # Step 4: 逐条获取详情
 # ----------------------------------------------------------
 def get_all_details(client, notes_dict, output_dir, blogger_name):
-    """逐条获取笔记详情，每10条checkpoint"""
+    """逐条获取笔记详情，每10条checkpoint，支持断点恢复"""
     notes_list = sorted(notes_dict.values(), key=lambda x: x.get("likedCount", 0), reverse=True)
     total = len(notes_list)
-    
-    print(f"\n📖 批量获取 {total} 条笔记详情...")
-    print("=" * 60)
-    
+    checkpoint_path = os.path.join(output_dir, f"{safe_filename(blogger_name)}_details_partial.json")
+
+    # 🔄 断点恢复：加载已有存档，跳过已爬条目
     details = []
+    already_done_ids = set()
     ok_count = 0
     err_count = 0
-    checkpoint_path = os.path.join(output_dir, f"{safe_filename(blogger_name)}_details_partial.json")
-    
+    if os.path.exists(checkpoint_path):
+        try:
+            with open(checkpoint_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            details = saved
+            for d in saved:
+                fid = (d.get("_feed_id")
+                       or d.get("data", {}).get("note", {}).get("noteId")
+                       or d.get("data", {}).get("note", {}).get("id"))
+                if fid:
+                    already_done_ids.add(fid)
+            ok_count = len([d for d in saved if "_error" not in d])
+            err_count = len([d for d in saved if "_error" in d])
+            print(f"\n🔄 发现断点文件，已恢复 {len(already_done_ids)} 条，继续未完成部分...")
+        except Exception as e:
+            print(f"\n⚠️ 断点文件读取失败，从头开始: {e}")
+            details = []
+            already_done_ids = set()
+            ok_count = 0
+            err_count = 0
+
+    print(f"\n📖 批量获取 {total} 条笔记详情（已有 {len(already_done_ids)} 条）...")
+    print("=" * 60)
+
     for i, note in enumerate(notes_list):
         nid = note["id"]
+
+        # 跳过已爬的
+        if nid in already_done_ids:
+            print(f"  [{i+1:3d}/{total}] ⏭️  已爬取，跳过")
+            continue
+
         token = note.get("xsecToken", "")
         title = note.get("title", "N/A")[:30]
         print(f"  [{i+1:3d}/{total}] {title}...", end="", flush=True)
@@ -222,34 +250,31 @@ def get_all_details(client, notes_dict, output_dir, blogger_name):
                 print(f" ⚠️ 笔记已删除或隐藏")
                 details.append({"_feed_id": nid, "_error": "笔记已删除或隐藏", "_title": note.get("title"), "_deleted": True})
                 err_count += 1
-                time.sleep(3)
-                continue
+            else:
+                # 按热度排序评论（likeCount 降序）
+                comments_list = detail.get("data", {}).get("comments", {}).get("list", [])
+                if comments_list:
+                    detail["data"]["comments"]["list"] = sorted(
+                        comments_list,
+                        key=lambda c: int(c.get("likeCount", 0)),
+                        reverse=True
+                    )
 
-            # 按热度排序评论（likeCount 降序）
-            comments_list = detail.get("data", {}).get("comments", {}).get("list", [])
-            if comments_list:
-                detail["data"]["comments"]["list"] = sorted(
-                    comments_list,
-                    key=lambda c: int(c.get("likeCount", 0)),
-                    reverse=True
-                )
+                detail["_meta"] = {
+                    "source": note.get("source"),
+                    "idx": i,
+                    "list_title": note.get("title"),
+                }
+                details.append(detail)
 
-            detail["_meta"] = {
-                "source": note.get("source"),
-                "idx": i,
-                "list_title": note.get("title"),
-            }
-            details.append(detail)
+                # 尝试提取互动数据
+                interact = detail.get("interactInfo", {})
+                if not interact:
+                    note_data = detail.get("data", {}).get("note", {})
+                    interact = note_data.get("interactInfo", {})
 
-            # 尝试提取互动数据
-            interact = detail.get("interactInfo", {})
-            if not interact:
-                # 可能在 data.note 里
-                note_data = detail.get("data", {}).get("note", {})
-                interact = note_data.get("interactInfo", {})
-
-            print(f" ✅ L:{interact.get('likedCount','?')} C:{interact.get('collectedCount','?')}")
-            ok_count += 1
+                print(f" ✅ L:{interact.get('likedCount','?')} C:{interact.get('collectedCount','?')}")
+                ok_count += 1
         except Exception as e:
             err_str = str(e)[:50]
             print(f" ❌ {err_str}")
@@ -258,8 +283,8 @@ def get_all_details(client, notes_dict, output_dir, blogger_name):
         
         time.sleep(3)  # 防风控间隔
         
-        # 每10条做一次checkpoint
-        if (i + 1) % 10 == 0:
+        # 每10条做一次checkpoint（按实际处理条数触发，不受跳过影响）
+        if len(details) % 10 == 0 and len(details) > 0:
             with open(checkpoint_path, "w", encoding="utf-8") as f:
                 json.dump(details, f, ensure_ascii=False, indent=2)
             print(f"  --- checkpoint: {ok_count}✅ {err_count}❌ ---")
