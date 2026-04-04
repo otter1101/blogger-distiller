@@ -122,7 +122,7 @@ def get_profile(client, user_id, xsec_token):
 # ----------------------------------------------------------
 # Step 3: 多关键词搜索补充
 # ----------------------------------------------------------
-def search_supplement(client, keyword, user_id, existing_notes, extra_keywords=None):
+def search_supplement(client, keyword, user_id, existing_notes, extra_keywords=None, max_notes=80):
     """通过多个关键词搜索补充遗漏笔记
     
     Args:
@@ -176,7 +176,11 @@ def search_supplement(client, keyword, user_id, existing_notes, extra_keywords=N
         except Exception as e:
             print(f"  '{kw}' 出错: {e}")
             time.sleep(2)
-    
+
+        if len(existing_notes) >= max_notes:
+            print(f"  已达 {max_notes} 条上限，停止搜索补充")
+            break
+
     print(f"  共新增 {new_total} 条，总计 {len(existing_notes)} 条")
     return existing_notes
 
@@ -207,25 +211,43 @@ def get_all_details(client, notes_dict, output_dir, blogger_name):
             detail = client.call("get_feed_detail", {
                 "feed_id": nid,
                 "xsec_token": token,
-                "load_all_comments": True,
-                "limit": 30,
+                "load_all_comments": False,
+                "limit": 10,
                 "click_more_replies": False,
             }, timeout=90)
-            
+
+            # 检测笔记是否已删除/隐藏（MCP 返回 not found）
+            raw_text = detail.get("_raw_text", "")
+            if "not found" in raw_text or "获取Feed详情失败" in raw_text:
+                print(f" ⚠️ 笔记已删除或隐藏")
+                details.append({"_feed_id": nid, "_error": "笔记已删除或隐藏", "_title": note.get("title"), "_deleted": True})
+                err_count += 1
+                time.sleep(3)
+                continue
+
+            # 按热度排序评论（likeCount 降序）
+            comments_list = detail.get("data", {}).get("comments", {}).get("list", [])
+            if comments_list:
+                detail["data"]["comments"]["list"] = sorted(
+                    comments_list,
+                    key=lambda c: int(c.get("likeCount", 0)),
+                    reverse=True
+                )
+
             detail["_meta"] = {
                 "source": note.get("source"),
                 "idx": i,
                 "list_title": note.get("title"),
             }
             details.append(detail)
-            
+
             # 尝试提取互动数据
             interact = detail.get("interactInfo", {})
             if not interact:
                 # 可能在 data.note 里
                 note_data = detail.get("data", {}).get("note", {})
                 interact = note_data.get("interactInfo", {})
-            
+
             print(f" ✅ L:{interact.get('likedCount','?')} C:{interact.get('collectedCount','?')}")
             ok_count += 1
         except Exception as e:
@@ -254,7 +276,7 @@ def get_all_details(client, notes_dict, output_dir, blogger_name):
 # ----------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------
-def crawl_blogger(keyword=None, user_id=None, output_dir=None, port=18060, is_self=False, extra_keywords=None):
+def crawl_blogger(keyword=None, user_id=None, output_dir=None, port=18060, is_self=False, extra_keywords=None, max_notes=80):
     """
     完整爬取一个博主的全量数据。
     
@@ -298,8 +320,14 @@ def crawl_blogger(keyword=None, user_id=None, output_dir=None, port=18060, is_se
     profile, notes = get_profile(client, user_id, xsec_token)
     
     # 搜索补充
-    notes = search_supplement(client, keyword or nickname, user_id, notes, extra_keywords)
-    
+    notes = search_supplement(client, keyword or nickname, user_id, notes, extra_keywords, max_notes=max_notes)
+
+    # 🔒 硬上限截断：按赞数排序后取前 max_notes 条
+    if len(notes) > max_notes:
+        sorted_notes = sorted(notes.values(), key=lambda x: x.get("likedCount", 0), reverse=True)
+        notes = {n["id"]: n for n in sorted_notes[:max_notes]}
+        print(f"\n⚙️ 已截断至 {max_notes} 条（原 {len(sorted_notes)} 条，按赞数取 TOP{max_notes}）")
+
     # 保存笔记列表
     notes_list = sorted(notes.values(), key=lambda x: x.get("likedCount", 0), reverse=True)
     list_path = os.path.join(output_dir, f"{safe_name}_notes_list.json")
@@ -321,7 +349,10 @@ def crawl_blogger(keyword=None, user_id=None, output_dir=None, port=18060, is_se
         json.dump(details, f, ensure_ascii=False, indent=2)
     
     ok_count = len([d for d in details if "_error" not in d])
+    deleted_count = len([d for d in details if d.get("_deleted")])
     print(f"\n💾 笔记详情: {details_path} ({ok_count}条有效)")
+    if deleted_count > 0:
+        print(f"   ⚠️ {deleted_count} 条笔记已被博主删除或隐藏，无法获取内容")
 
     # === 数据校验（自动运行，不依赖 AI 调用）===
     print("\n" + "=" * 60)
@@ -337,7 +368,7 @@ def crawl_blogger(keyword=None, user_id=None, output_dir=None, port=18060, is_se
         sys.exit(1)
 
     # V2-V5：警告类，不阻断（V2 的 expected_count 在批次B加 max_notes 后补入）
-    print(check_note_count(valid_details, 0))
+    print(check_note_count(valid_details, max_notes))
     print(check_time_field(valid_details))
     print(check_duplicates(valid_details))
     print(get_sample_watermark(valid_details, profile))
@@ -369,6 +400,8 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=18060, help="MCP端口")
     parser.add_argument("--self", dest="is_self", action="store_true", help="标记为自己账号")
     parser.add_argument("--keywords", help="领域关键词（逗号分隔），用于搜索补充。如：烘焙,食谱,探店")
+    parser.add_argument("--max-notes", type=int, default=80,
+                        help="最大爬取条数上限（默认80，用户可根据需要调大，如 --max-notes 100）")
     args = parser.parse_args()
 
     if not args.keyword and not args.user_id:
@@ -387,6 +420,7 @@ if __name__ == "__main__":
         port=args.port,
         is_self=args.is_self,
         extra_keywords=extra_keywords,
+        max_notes=args.max_notes,
     )
     elapsed = time.time() - start
     

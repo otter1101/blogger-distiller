@@ -166,10 +166,18 @@ class MCPClient:
     def get_login_qrcode(self):
         """
         获取小红书登录二维码。
-        Returns: dict — 包含 qrUrl / qrBase64 等字段
+        Returns: dict — 包含 qrBase64 / _raw_text 等字段
         Raises: MCPError
         """
-        return self.call("get_login_qrcode")
+        raw = self._raw_call("get_login_qrcode", {})
+        contents = raw.get("result", {}).get("content", [])
+        data = {}
+        for c in contents:
+            if c.get("type") == "text":
+                data["_raw_text"] = c.get("text", "")
+            elif c.get("type") == "image":
+                data["qrBase64"] = c.get("data", "")
+        return data
 
     # ----------------------------------------------------------
     # 内部工具
