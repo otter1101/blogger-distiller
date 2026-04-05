@@ -588,6 +588,180 @@ def gen_ai_prompt(nickname, analysis_data, notes_details=None):
 
 
 # ----------------------------------------------------------
+# 数据底稿生成
+# ----------------------------------------------------------
+
+def gen_data_draft(nickname, stats, top10, category_stats, tag_freq,
+                   title_patterns, emoji_info, cta_info, structure_info,
+                   frequency_info, growth_info, notes,
+                   opinion_candidates, opinion_mode, writing_structure, value_words,
+                   full_notes=None):
+    """生成数据底稿.md：所有统计数据 + 认知层原材料，供 AI蒸馏任务.md 使用"""
+    lines = [
+        f"# {nickname} — 数据底稿",
+        f"\n> 由 deep_analyze.py 自动生成 | {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"> ⚠️ 本文件是 AI 蒸馏任务的原材料，不直接给用户看",
+        f"\n---",
+        f"\n## 基础统计",
+        f"\n| 指标 | 数值 |",
+        f"|------|------|",
+        f"| 笔记总数 | {stats['total']}条 |",
+        f"| 视频/图文 | {stats['video_count']}视频 / {stats['normal_count']}图文 |",
+        f"| 均赞 | {stats['avg_likes']:,} |",
+        f"| 均收藏 | {stats['avg_collects']:,} |",
+        f"| 均评论 | {stats['avg_comments']:,} |",
+        f"| 总赞 | {stats['total_likes']:,} |",
+        f"| 总收藏 | {stats['total_collects']:,} |",
+        f"| 总评论 | {stats['total_comments']:,} |",
+    ]
+
+    # 发布频率
+    if frequency_info and frequency_info.get("avg_days_between"):
+        lines.append(f"| 发布频率 | {frequency_info['pattern']}（均{frequency_info['avg_days_between']}天/条） |")
+
+    # 爆款率
+    if notes:
+        avg = stats["avg_likes"]
+        hit_count = sum(1 for n in notes if n.get("likes", 0) > avg * 3)
+        super_hit = sum(1 for n in notes if n.get("likes", 0) > avg * 10)
+        lines.append(f"| 爆款率（>均赞×3） | {hit_count}条（{round(hit_count/stats['total']*100, 1) if stats['total'] else 0}%） |")
+        lines.append(f"| 超级爆款率（>均赞×10） | {super_hit}条 |")
+
+    # 藏赞比
+    if stats["total_likes"] > 0:
+        ratio = round(stats["total_collects"] / stats["total_likes"] * 100, 1)
+        lines.append(f"| 藏赞比 | {ratio}% |")
+
+    lines.append(f"\n## 内容领域分布")
+    lines.append(f"\n| 领域 | 数量 | 占比 | 均赞 | 代表作 |")
+    lines.append(f"|------|------|------|------|--------|")
+    for cat, cs in category_stats.items():
+        lines.append(f"| {cat} | {cs['count']} | {cs['pct']}% | {cs['avg_likes']:,} | {cs['top_note'][:25]} |")
+
+    lines.append(f"\n## 标签 TOP20")
+    lines.append(f"\n| 标签 | 出现次数 |")
+    lines.append(f"|------|---------|")
+    for tag, count in tag_freq[:20]:
+        lines.append(f"| #{tag} | {count} |")
+
+    lines.append(f"\n## 标题模式")
+    if title_patterns:
+        lines.append(f"\n| 模式 | 条数 | 占比 | 示例 |")
+        lines.append(f"|------|------|------|------|")
+        for pname, data in sorted(title_patterns.items(), key=lambda x: x[1]["count"], reverse=True):
+            ex = data["examples"][0][:20] if data["examples"] else ""
+            lines.append(f"| {pname} | {data['count']} | {data['pct']}% | {ex} |")
+
+    lines.append(f"\n## Emoji 使用")
+    if emoji_info:
+        lines.append(f"\n- 使用率：{emoji_info['emoji_usage_pct']}%（{emoji_info['notes_with_emoji']}/{emoji_info['total_notes']}条）")
+        if emoji_info["top_emojis"]:
+            top_e = " ".join(f"{e[0]}({e[1]})" for e in emoji_info["top_emojis"][:10])
+            lines.append(f"- 高频 Emoji TOP10：{top_e}")
+
+    lines.append(f"\n## CTA 使用")
+    if cta_info:
+        lines.append(f"\n| CTA 类型 | 条数 | 使用率 |")
+        lines.append(f"|---------|------|--------|")
+        for cta_type, data in sorted(cta_info.items(), key=lambda x: x[1]["count"], reverse=True):
+            lines.append(f"| {cta_type} | {data['count']} | {data['pct']}% |")
+    else:
+        lines.append(f"\n较少使用显式 CTA。")
+
+    lines.append(f"\n## 正文结构统计")
+    if structure_info:
+        lines.append(f"\n| 指标 | 数值 |")
+        lines.append(f"|------|------|")
+        lines.append(f"| 平均正文长度 | {structure_info['avg_length']}字 |")
+        lines.append(f"| 短文（<200字） | {structure_info['short_count']}条 |")
+        lines.append(f"| 中文（200-500字） | {structure_info['medium_count']}条 |")
+        lines.append(f"| 长文（>500字） | {structure_info['long_count']}条 |")
+        lines.append(f"| 使用列表格式 | {structure_info['has_list_count']}条 |")
+        lines.append(f"| 使用数字小标题 | {structure_info['has_number_heading']}条 |")
+
+    lines.append(f"\n## 发展趋势")
+    if growth_info:
+        lines.append(f"\n前半（{growth_info['early_count']}条）vs 后半（{growth_info['recent_count']}条）：\n")
+        lines.append(f"| 领域 | 早期占比 | 近期占比 | 变化 |")
+        lines.append(f"|------|---------|---------|------|")
+        for cat, change in sorted(growth_info["category_shifts"].items(), key=lambda x: abs(x[1]["delta"]), reverse=True):
+            arrow = "📈" if change["delta"] > 5 else ("📉" if change["delta"] < -5 else "➡️")
+            lines.append(f"| {cat} | {change['early_pct']}% | {change['recent_pct']}% | {arrow} {change['delta']:+.1f}% |")
+    else:
+        lines.append(f"\n数据不足，无法分析趋势。")
+
+    # 建立完整正文查找表（按笔记ID）
+    full_text_map = {}
+    if full_notes:
+        for fn in full_notes:
+            nid = fn.get("noteId", fn.get("_feed_id", ""))
+            if nid and fn.get("desc"):
+                full_text_map[nid] = fn["desc"]
+
+    lines.append(f"\n## TOP10 数据包")
+    for i, n in enumerate(top10[:10]):
+        lines.append(f"\n### TOP{i+1}：{n['title']}")
+        lines.append(f"赞 {n['likes_raw']} | 藏 {n['collects_raw']} | 评 {n['comments_raw']} | 类型 {n['type']}")
+        if n.get("tags"):
+            lines.append(f"标签：{' '.join('#'+t for t in n['tags'][:8])}")
+        full_desc = full_text_map.get(n.get("id", ""))
+        if full_desc:
+            lines.append(f"\n完整正文：\n{full_desc}")
+        else:
+            desc = (n.get("desc", "") or "")[:200]
+            if desc:
+                lines.append(f"\n正文前200字：\n{desc}...")
+        if n.get("comment_list"):
+            lines.append(f"\n热评：")
+            for c in n["comment_list"][:5]:
+                prefix = "[作者] " if c.get("is_author") else ""
+                lines.append(f"- {prefix}{c['user']}：{c['content'][:80]}")
+
+    # ---- 认知层数据（新增）----
+    lines.append(f"\n---")
+    lines.append(f"\n## 认知层数据")
+
+    lines.append(f"\n### 观点句候选（{opinion_mode}，共{len(opinion_candidates)}条）")
+    lines.append(f"\n⚠️ 这是 AI 提炼认知层的核心原材料，全量内联，不截断\n")
+    if opinion_candidates:
+        lines.append(f"| # | 观点句 | 来源笔记 | 匹配类型 |")
+        lines.append(f"|---|--------|---------|---------|")
+        for i, c in enumerate(opinion_candidates):
+            sentence = c["sentence"].replace("|", "｜")
+            title = c["source_title"].replace("|", "｜")
+            lines.append(f"| {i+1} | {sentence} | 《{title}》({c['source_likes']}赞) | {c['match_type']} |")
+    else:
+        lines.append(f"⚠️ 未提取到观点句候选，AI 需从全量正文自行提取。")
+
+    lines.append(f"\n### 写作结构统计（供内容层使用，非认知层）")
+    opening = writing_structure.get("opening_types", {})
+    ending = writing_structure.get("ending_types", {})
+    if opening:
+        opening_str = " / ".join(f"{k}{v}条" for k, v in sorted(opening.items(), key=lambda x: x[1], reverse=True))
+        lines.append(f"\n- 开头类型：{opening_str}")
+    if ending:
+        ending_str = " / ".join(f"{k}{v}条" for k, v in sorted(ending.items(), key=lambda x: x[1], reverse=True))
+        lines.append(f"- 结尾类型：{ending_str}")
+    if structure_info:
+        total_notes = structure_info['short_count'] + structure_info['medium_count'] + structure_info['long_count']
+        list_pct = round(structure_info['has_list_count'] / total_notes * 100, 1) if total_notes else 0
+        heading_pct = round(structure_info['has_number_heading'] / total_notes * 100, 1) if total_notes else 0
+        lines.append(f"- 平均正文长度：{structure_info['avg_length']}字 | 列表使用率：{list_pct}% | 小标题使用率：{heading_pct}%")
+
+    lines.append(f"\n### 高频词 TOP15（方案B，从正文提取，未经筛选）")
+    lines.append(f"\n⚠️ 含通用词，AI 在认知层分析时需自行筛选有价值立场含义的词\n")
+    if value_words:
+        lines.append(f"| 词 | 出现次数 |")
+        lines.append(f"|---|---------|")
+        for vw in value_words:
+            lines.append(f"| {vw['word']} | {vw['count']} |")
+    else:
+        lines.append(f"未提取到高频词。")
+
+    return "\n".join(lines)
+
+
+# ----------------------------------------------------------
 # 主函数
 # ----------------------------------------------------------
 
@@ -647,6 +821,28 @@ def deep_analyze(analysis_path, nickname, output_dir, notes_details_path=None):
     growth_info = find_growth_pattern(notes) if notes else None
 
     safe_name = safe_filename(nickname)
+
+    # ---- 读取认知层字段（D 批次新增）----
+    opinion_candidates = analysis.get("opinion_candidates", [])
+    opinion_mode = analysis.get("opinion_extraction_mode", "unknown")
+    writing_structure = analysis.get("writing_structure", {})
+    value_words = analysis.get("value_words", [])
+
+    # ---- 生成数据底稿.md ----
+    process_dir = os.path.join(output_dir, "_过程文件", "原始素材")
+    os.makedirs(process_dir, exist_ok=True)
+
+    draft_content = gen_data_draft(
+        nickname, stats, top10, category_stats, tag_freq,
+        title_patterns, emoji_info, cta_info, structure_info,
+        frequency_info, growth_info, notes,
+        opinion_candidates, opinion_mode, writing_structure, value_words,
+        full_notes=full_notes
+    )
+    draft_path = os.path.join(process_dir, f"{safe_name}_数据底稿.md")
+    with open(draft_path, "w", encoding="utf-8") as f:
+        f.write(draft_content)
+    print(f"  📄 数据底稿: {draft_path}")
 
     # ---- 生成增强版文档 ----
     docs = {

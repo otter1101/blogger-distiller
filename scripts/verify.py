@@ -39,7 +39,11 @@ def _extract_desc(detail):
     desc = detail.get("data", {}).get("note", {}).get("desc", "")
     if desc:
         return desc
-    # 路径2：noteCard.displayTitle（兜底，通常是标题不是正文）
+    # 路径2：顶层 desc（旧版数据格式）
+    desc = detail.get("desc", "")
+    if desc:
+        return desc
+    # 路径3：noteCard.desc（兜底）
     return detail.get("noteCard", {}).get("desc", "")
 
 

@@ -148,7 +148,7 @@ export HTTPS_PROXY="http://127.0.0.1:7890"
 
 #### 步骤 A：生成数据底稿（脚本自动执行）
 
-运行 `python scripts/deep_analyze.py ./data/<博主名>_analysis.json "<博主名>" -o ./output --details ./data/<博主名>_notes_details.json`
+运行 `python scripts/deep_analyze.py ./data/<博主名>_analysis.json "<博主名>" -o ./output --details ./data/<博主名>_notes_details.json`（`--details` 必须传，否则 TOP10 只有 200 字摘要）
 
 脚本自动完成以下确定性分析，产出数据底稿供 AI 使用：
 
