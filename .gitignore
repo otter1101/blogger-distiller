@@ -16,9 +16,11 @@ Thumbs.db
 # 运行时生成
 output/
 data/
+test_output/
 *.docx
 *.json
 !references/**
+!tests/fixtures/*.json
 
 # 工作流临时文件
 _参考资料/
