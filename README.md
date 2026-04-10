@@ -199,8 +199,8 @@ MIT License
 **让 AI 帮你蒸馏出优秀者的思维方式，变成你自己的创作武器**
 
 有任何问题，欢迎进群讨论～
-![da597296e12cb0287e8a9112d12942b0](https://github.com/user-attachments/assets/d2ee0a37-8971-4750-90ee-abfa47fac92c)
+<img src="https://github.com/user-attachments/assets/d2ee0a37-8971-4750-90ee-abfa47fac92c" width="200"/>
 
-![008863a2cfa1276a502683b1faf908db](https://github.com/user-attachments/assets/d065d0be-9926-4e4f-a14f-6ead7621cf72)
+<img src="https://github.com/user-attachments/assets/d065d0be-9926-4e4f-a14f-6ead7621cf72" width="200"/>
 
 </div>
