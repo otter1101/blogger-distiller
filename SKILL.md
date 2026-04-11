@@ -231,10 +231,12 @@ AI 必须读取 `AI蒸馏任务.md`，生成以下最终交付物：
 
 1. **HTML 报告**
    - 文件名：`{博主名}_蒸馏报告.html`
-   - 技术要求：单文件 HTML，Tailwind CDN 内联，底色 #FAF8F5，文字 #2D2D2D，品牌色 #8B7355
-   - 卡片白色 + 细微阴影，最大宽度 800px 居中
-   - 折叠面板用 `<details><summary>` 原生 HTML，无 JS
-   - 响应式，移动端友好
+   - 技术要求：单文件 HTML，手写 CSS（禁止 Tailwind CDN），Google Fonts 引入 Space Mono + Noto Serif SC
+   - 设计风格：Archive Terminal（工业档案感）；底色 #CEC9C0，主强调色 #8A3926，正文 #1A1211
+   - 无圆角、无阴影、无白色卡片；模块1/8/10 为砖红色反转背景
+   - 三个动效：滚动 fadeInUp / 数字 counter / 分割线 draw-in（原生 JS）
+   - 折叠面板用 `<details><summary>` 原生 HTML；响应式，移动端断点 768px
+   - 详细视觉规格见 `AI蒸馏任务.md` 的"技术要求"章节
 
 2. **Skill 文件夹**
    - 模式 A：`{博主名}_创作指南.skill/SKILL.md`
