@@ -22,10 +22,15 @@ class CoverAnalyzer:
     def __init__(self, platform: str = "xhs"):
         self.platform = platform
 
-    def extract_covers(self, details_path: str, max_covers: int = 12) -> list:
-        """从详情 JSON 提取封面 URL 列表"""
+    def extract_covers(self, details_path: str, max_covers: int = None) -> list:
+        """从详情 JSON 提取封面 URL 列表（按赞数 Top 排序）"""
         with open(details_path, "r", encoding="utf-8") as f:
             data = json.load(f)
+
+        if max_covers is None:
+            max_covers = max(10, min(20, int(len(data) * 0.3)))
+
+        data = sorted(data, key=self._get_likes, reverse=True)
 
         covers = []
         for item in data:
@@ -36,6 +41,19 @@ class CoverAnalyzer:
                 if len(covers) >= max_covers:
                     break
         return covers
+
+    def _get_likes(self, item: dict) -> int:
+        """按平台提取赞数（用于排序）"""
+        try:
+            if self.platform == "xhs":
+                count = item.get("note", {}).get("interactInfo", {}).get("likedCount", "0")
+            elif self.platform == "douyin":
+                count = item.get("video", {}).get("interactInfo", {}).get("likedCount", "0")
+            else:
+                count = "0"
+            return int(str(count).replace(",", ""))
+        except (ValueError, TypeError):
+            return 0
 
     def _get_cover_url(self, item) -> str:
         """按平台提取封面 URL"""

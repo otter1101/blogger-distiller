@@ -316,6 +316,9 @@ def get_all_video_details(client, videos_dict, output_dir, blogger_name):
                 err_count += 1
             else:
                 video_obj = _normalize_video_obj(video_obj_raw)
+                list_cover = vid.get("cover", "")
+                if list_cover:
+                    video_obj["coverUrl"] = list_cover
                 entry = {
                     "_feed_id": vid_id,
                     "video": video_obj,
