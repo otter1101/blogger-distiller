@@ -68,7 +68,15 @@
         "method": "GET",
         "params": {"sec_user_id": "${user_id}"},
         "adapter": "dy_user_info_app",
-        "_note": "v1.1 实测可用。web/app_v2 路径均返回 404，已移除"
+        "_note": "首选"
+      },
+      {
+        "group": "web",
+        "path": "/api/v1/douyin/web/handler_user_profile",
+        "method": "GET",
+        "params": {"sec_user_id": "${user_id}"},
+        "adapter": "dy_user_info_web",
+        "_note": "备用"
       }
     ],
 
