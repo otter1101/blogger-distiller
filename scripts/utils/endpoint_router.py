@@ -64,8 +64,8 @@ class EndpointRouter:
 
     # 这些 HTTP 状态码触发降级（跳到下一个端点）
     DEGRADABLE_CODES = {400, 404, 500, 502, 503, 504}
-    # 这些不降级（认证/权限/余额问题，降级也没用）
-    NON_DEGRADABLE_CODES = {401, 402, 403}
+    # 这些不降级（key 无效或账户余额不足，换端点也没用）
+    NON_DEGRADABLE_CODES = {401, 402}
 
     def __init__(self, request_func, platform: str = "xhs", config_path: str = None):
         """
@@ -267,8 +267,14 @@ class EndpointRouter:
                 status_code = getattr(e, "status_code", None)
 
                 if status_code in self.NON_DEGRADABLE_CODES:
-                    # 认证/权限问题，直接抛出，不降级
+                    # key 无效或账户余额不足，换端点也没用，直接抛出
                     raise
+
+                if status_code == 403:
+                    # 单个端点权限拒绝（如 1010），只标记这条端点本身，不做类别级联
+                    self._dead_endpoints[self._ep_key(ep)] = True
+                    errors.append(f"{group_tag} HTTP 403 (端点权限拒绝，跳过)")
+                    continue
 
                 if status_code == 429:
                     # 限速：不标记死链，但记录错误继续降级
@@ -306,6 +312,8 @@ class EndpointRouter:
 
         # 所有端点都失败了
         error_detail = " → ".join(errors) if errors else "所有端点在死链缓存中"
+        if errors and all("HTTP 403" in e for e in errors):
+            error_detail += " | 所有端点均返回权限拒绝，请确认 TikHub 账户余额是否充足"
         raise TikHubError(
             f"{pool_name} 所有 {len(pool)} 个端点均失败: {error_detail}"
         )
