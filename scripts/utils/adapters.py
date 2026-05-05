@@ -992,6 +992,33 @@ def dy_search_users_creator(raw, args):
     }
 
 
+def dy_search_users_search_v2(raw, args):
+    """
+    search/fetch_user_search_v2 → 内部格式
+    响应结构: data.user_list[].user_info.{sec_uid, nickname, follower_count, ...}
+    直接返回 sec_uid，无需二次换取。
+    """
+    data = _dig(raw, "data", default={})
+    user_list_raw = data.get("user_list") or []
+    users = [_dy_user_item(item) for item in user_list_raw if isinstance(item, dict)]
+    return {
+        "code": raw.get("code", 0),
+        "message": raw.get("message", ""),
+        "data": {
+            "data": {
+                "users": users,
+                "has_more": data.get("has_more", 0),
+                "cursor": data.get("cursor", 0),
+            }
+        },
+    }
+
+
+def dy_search_users_search_v1(raw, args):
+    """search/fetch_user_search → 内部格式（结构与 v2 相同）"""
+    return dy_search_users_search_v2(raw, args)
+
+
 # ---- 用户信息 ----
 
 def dy_user_info_app(raw, args):
@@ -1119,6 +1146,8 @@ ADAPTERS.update({
     "dy_search_users_app": dy_search_users_app,
     "dy_search_users_web": dy_search_users_web,
     "dy_search_users_creator": dy_search_users_creator,
+    "dy_search_users_search_v2": dy_search_users_search_v2,
+    "dy_search_users_search_v1": dy_search_users_search_v1,
     # fetch_user_info (douyin)
     "dy_user_info_app": dy_user_info_app,
     "dy_user_info_web": dy_user_info_web,

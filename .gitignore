@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 运行时生成
+output/
+data/
+test_output/
+*.log
+*.docx
+*.json
+!references/**
+!tests/fixtures/*.json
+!scripts/utils/endpoints.json
+!scripts/utils/xhs_endpoints.json
+!scripts/utils/douyin_endpoints.json
+
+# 密钥/环境配置（不要提交到仓库）
+.env
+.env.*
+tikhub_config.json
+
+# 工作流临时文件
+_参考资料/
+GIT推送指南.md
+GitHub仓库描述_350字符.md
+README.docx
