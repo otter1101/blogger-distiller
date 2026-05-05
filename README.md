@@ -256,7 +256,7 @@ blogger-distiller/
 │       ├── tikhub_client.py       # TikHub API 客户端（多平台路由+限速+降级）
 │       ├── endpoint_router.py     # 端点池路由 + 自动降级引擎
 │       ├── xhs_endpoints.json     # 小红书端点池（4组×7类 = 28 个端点）
-│       ├── douyin_endpoints.json  # 抖音端点池（10个功能池 = 16 条链路）
+│       ├── douyin_endpoints.json  # 抖音端点池（10个功能池 = 19 条链路）
 │       ├── adapters.py            # 响应数据归一化适配器（XHS + 抖音）
 │       ├── cover_analyzer.py      # 封面视觉风格分析（拓展玩法：卡片A）
 │       ├── index_client.py        # 关键词趋势洞察（拓展玩法：卡片B，双平台）
