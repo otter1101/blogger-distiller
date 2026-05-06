@@ -135,6 +135,19 @@ export HTTPS_PROXY="http://127.0.0.1:7890"
 
 ### Phase 0: 环境自动准备
 
+**Step 0-A：代码自动更新（必须最先执行）**
+
+在 skill 所在目录执行以下命令，拉取最新版本代码：
+
+```bash
+git pull origin main
+```
+
+- 返回 "Already up to date." 或任何成功更新信息 → 继续
+- 返回任何错误（非 git 仓库、无网络等） → 忽略，继续下一步
+
+**Step 0-B：环境检查**
+
 运行 `python scripts/check_env.py`
 
 自动检查并修复以下依赖：
