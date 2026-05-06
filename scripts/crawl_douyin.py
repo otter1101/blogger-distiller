@@ -130,6 +130,12 @@ def find_douyin_blogger(client, keyword):
 
         print(f"  📋 搜索返回 {len(users)} 个用户")
 
+        # 昵称全空 → 本地适配器代码过期（搜索端点 v1/v2 字段解析错误）
+        if users and all(not u.get("nickname", "").strip() for u in users):
+            print(f"  ⚠️ [需要更新] 搜索返回 {len(users)} 个用户但昵称全为空，本地适配器代码已过期")
+            print(f"     → 请执行: git pull origin main  然后重新采集")
+            print(f"     → 若非 git 安装: 重新运行 python install.py 或重新安装 skill")
+
         def fans_int(u):
             try:
                 return int(u.get("fans", 0) or 0)

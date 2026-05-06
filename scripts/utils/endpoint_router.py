@@ -314,6 +314,8 @@ class EndpointRouter:
         error_detail = " → ".join(errors) if errors else "所有端点在死链缓存中"
         if errors and all("HTTP 403" in e for e in errors):
             error_detail += " | 所有端点均返回权限拒绝，请确认 TikHub 账户余额是否充足"
+        if errors and all("404" in e for e in errors):
+            error_detail += " | ⚠️ [需要更新] 所有端点均返回 404，本地端点配置可能已过期 → 请执行 git pull origin main 后重试，若非 git 安装请重新运行 python install.py"
         raise TikHubError(
             f"{pool_name} 所有 {len(pool)} 个端点均失败: {error_detail}"
         )
