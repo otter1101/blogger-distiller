@@ -995,12 +995,72 @@ def dy_search_users_creator(raw, args):
 def dy_search_users_search_v2(raw, args):
     """
     search/fetch_user_search_v2 → 内部格式
-    响应结构: data.user_list[].user_info.{sec_uid, nickname, follower_count, ...}
-    直接返回 sec_uid，无需二次换取。
+    实测路径: raw.data.data.user_list[]
+    字段: user_id(=sec_uid), nick_name, fans_cnt, avatar_url
     """
+    inner_data = _dig(raw, "data", "data", default={})
+    user_list_raw = inner_data.get("user_list") or []
+    users = []
+    for item in user_list_raw:
+        if not isinstance(item, dict):
+            continue
+        users.append({
+            "id": item.get("user_id", ""),
+            "nickname": item.get("nick_name", ""),
+            "avatar": item.get("avatar_url", ""),
+            "fans": _dy_count(item.get("fans_cnt", 0)),
+            "description": "",
+            "unique_id": "",
+            "_raw_platform": "douyin",
+        })
+    return {
+        "code": raw.get("code", 0),
+        "message": raw.get("message", ""),
+        "data": {
+            "data": {
+                "users": users,
+                "has_more": inner_data.get("has_more", 0),
+                "cursor": inner_data.get("cursor", 0),
+            }
+        },
+    }
+
+
+def dy_search_users_search_v1(raw, args):
+    """
+    search/fetch_user_search → 内部格式
+    实测路径: raw.data.user_list[].dynamic_patch.raw_data (JSON 字符串，需二次 parse)
+    parse 后: user_info.{sec_uid, nickname, follower_count, avatar_thumb, unique_id}
+    """
+    import json as _json
     data = _dig(raw, "data", default={})
     user_list_raw = data.get("user_list") or []
-    users = [_dy_user_item(item) for item in user_list_raw if isinstance(item, dict)]
+    users = []
+    for item in user_list_raw:
+        if not isinstance(item, dict):
+            continue
+        dp = item.get("dynamic_patch") or {}
+        raw_str = dp.get("raw_data", "")
+        if not raw_str:
+            continue
+        try:
+            parsed = _json.loads(raw_str)
+        except Exception:
+            continue
+        info = parsed.get("user_info") or {}
+        if not info:
+            continue
+        avatar_thumb = info.get("avatar_thumb") or {}
+        url_list = avatar_thumb.get("url_list") or [] if isinstance(avatar_thumb, dict) else []
+        users.append({
+            "id": info.get("sec_uid", ""),
+            "nickname": info.get("nickname", ""),
+            "avatar": url_list[0] if url_list else "",
+            "fans": _dy_count(info.get("follower_count", 0)),
+            "description": info.get("signature", ""),
+            "unique_id": info.get("unique_id", ""),
+            "_raw_platform": "douyin",
+        })
     return {
         "code": raw.get("code", 0),
         "message": raw.get("message", ""),
@@ -1012,11 +1072,6 @@ def dy_search_users_search_v2(raw, args):
             }
         },
     }
-
-
-def dy_search_users_search_v1(raw, args):
-    """search/fetch_user_search → 内部格式（结构与 v2 相同）"""
-    return dy_search_users_search_v2(raw, args)
 
 
 # ---- 用户信息 ----
