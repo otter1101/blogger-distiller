@@ -27,7 +27,7 @@ def detect_platform(raw_details):
         return "xhs"
     first = next((e for e in raw_details if "_error" not in e), raw_details[0])
     source = first.get("_meta", {}).get("source")
-    if source:
+    if source in ("xhs", "douyin"):
         return source
     if "video" in first:
         return "douyin"
