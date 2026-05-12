@@ -2,37 +2,10 @@
   "_comment": "抖音（Douyin）TikHub 端点池配置 — 每个 pool 至少 1 条有效链路。v1.1 实测更新：废弃路径已移除，search_users 改用 creator API。",
   "platform": "douyin",
   "version": "1.1",
-  "last_updated": "2026-05-04",
+  "last_updated": "2026-05-06",
   "_priority_note": "v1.1 已实测可用性。search_users: creator endpoint（返回数字uid，调用方需换取sec_uid）。fetch_user_info: 仅 app v3 handler_user_profile 可用。",
 
   "pools": {
-
-    "search_videos": [
-      {
-        "group": "app",
-        "path": "/api/v1/douyin/app/v3/fetch_search_result",
-        "method": "GET",
-        "params": {"keyword": "${keyword}", "offset": "${offset}", "count": 20, "search_type": "video"},
-        "adapter": "dy_search_videos_app",
-        "_note": "v1.0 首选，app v3 通用搜索接口"
-      },
-      {
-        "group": "web",
-        "path": "/api/v1/douyin/web/fetch_search_result",
-        "method": "GET",
-        "params": {"keyword": "${keyword}", "offset": "${offset}", "count": 20},
-        "adapter": "dy_search_videos_web",
-        "_note": "v1.0 备选，web 端搜索接口"
-      },
-      {
-        "group": "app_v2",
-        "path": "/api/v1/douyin/app/v2/search_videos",
-        "method": "GET",
-        "params": {"keyword": "${keyword}", "page": "${page}"},
-        "adapter": "dy_search_videos_app_v2",
-        "_note": "v1.0 末位兜底"
-      }
-    ],
 
     "search_users": [
       {
@@ -58,6 +31,33 @@
         "params": {"user_name": "${keyword}", "cursor": "${cursor}", "count": "${count}"},
         "adapter": "dy_search_users_creator",
         "_note": "末位兜底。返回数字 uid，调用方需调 fetch_user_profile_by_uid 换取 sec_uid"
+      }
+    ],
+
+    "search_videos": [
+      {
+        "group": "app",
+        "path": "/api/v1/douyin/app/v3/fetch_search_result",
+        "method": "GET",
+        "params": {"keyword": "${keyword}", "offset": "${offset}", "count": 20, "search_type": "video"},
+        "adapter": "dy_search_videos_app",
+        "_note": "v1.0 首选，app v3 通用搜索接口"
+      },
+      {
+        "group": "web",
+        "path": "/api/v1/douyin/web/fetch_search_result",
+        "method": "GET",
+        "params": {"keyword": "${keyword}", "offset": "${offset}", "count": 20},
+        "adapter": "dy_search_videos_web",
+        "_note": "v1.0 备选，web 端搜索接口"
+      },
+      {
+        "group": "app_v2",
+        "path": "/api/v1/douyin/app/v2/search_videos",
+        "method": "GET",
+        "params": {"keyword": "${keyword}", "page": "${page}"},
+        "adapter": "dy_search_videos_app_v2",
+        "_note": "v1.0 末位兜底"
       }
     ],
 
