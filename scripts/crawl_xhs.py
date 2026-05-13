@@ -534,6 +534,33 @@ def get_all_details(client, notes_dict, output_dir, blogger_name):
             ok_count = 0
             err_count = 0
 
+    # 🔄 增量追加：没有 checkpoint 时，加载已完成的详情文件，跳过已爬条目（节省 API 费用）
+    if not already_done_ids:
+        completed_path = os.path.join(output_dir, f"{safe_filename(blogger_name)}_notes_details.json")
+        if os.path.exists(completed_path):
+            try:
+                with open(completed_path, "r", encoding="utf-8") as f:
+                    completed = json.load(f)
+                loaded_ids = set()
+                for d in completed:
+                    fid = (d.get("_feed_id")
+                           or d.get("data", {}).get("note", {}).get("noteId")
+                           or d.get("data", {}).get("note", {}).get("id"))
+                    if fid:
+                        already_done_ids.add(fid)
+                        details.append(d)
+                        loaded_ids.add(fid)
+                if loaded_ids:
+                    ok_count = len([d for d in details if "_error" not in d])
+                    err_count = len([d for d in details if "_error" in d])
+                    print(f"\n📦 发现已完成详情文件，已加载 {len(loaded_ids)} 条（将跳过这些笔记，直接追加新内容）")
+            except Exception as e:
+                print(f"\n⚠️ 已完成详情文件读取失败，将重新爬取: {e}")
+                details = []
+                already_done_ids = set()
+                ok_count = 0
+                err_count = 0
+
     print(f"\n📖 批量获取 {total} 条笔记详情（已有 {len(already_done_ids)} 条）...")
     print("=" * 60)
 
