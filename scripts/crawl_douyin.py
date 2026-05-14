@@ -481,6 +481,7 @@ def crawl_douyin(keyword=None, user_id=None, output_dir=None, token=None, max_vi
 
     # 截断上限
     buffer = max_videos + 10
+    print(f"\n⚙️  目标 {max_videos} 条 | 实际将采集至多 {buffer} 条（含10条备用缓冲，应对详情拉取偶发失败）")
     if len(videos) > buffer:
         sorted_vids = sorted(videos.values(), key=lambda x: int(x.get("likes", 0) or 0), reverse=True)
         videos = {v["id"]: v for v in sorted_vids[:buffer]}

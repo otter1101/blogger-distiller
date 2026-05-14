@@ -258,7 +258,7 @@ def find_blogger(client, keyword):
 # ----------------------------------------------------------
 # Step 2: 获取主页信息 + 笔记列表
 # ----------------------------------------------------------
-def get_profile(client, user_id, xsec_token):
+def get_profile(client, user_id, xsec_token, max_notes=80):
     """获取博主主页信息和笔记列表（TikHub Web API）"""
     print(f"\n📋 获取主页信息...")
     
@@ -341,10 +341,15 @@ def get_profile(client, user_id, xsec_token):
                 if c:
                     last_cursor = c
             
+            # 已达缓冲上限，无需继续翻页
+            if len(notes) >= max_notes + 10:
+                print(f"  已获取 {len(notes)} 条（≥ 目标 {max_notes}+10 缓冲），停止翻页")
+                break
+
             # 检查是否有下一页
             has_more = notes_data.get("has_more") or notes_data.get("hasMore") or False
             next_cursor = last_cursor or notes_data.get("cursor") or notes_data.get("lastCursor") or ""
-            
+
             if not has_more or not next_cursor or not note_list:
                 break
             
@@ -884,18 +889,19 @@ def _extract_supplement_entry(raw, note_id):
     }
 
 
-def fetch_comments_batch(details, client, max_comments_per_note=20):
+def fetch_comments_batch(details, client, max_comments_per_note=20, top_n_notes=20):
     """
     独立评论采集：对每条有效笔记调用 fetch_note_comments 端点。
-    
+
     仅采集缺评论的笔记（comments.list 为空且 commentCount > 0 的）。
     评论端点独立于详情端点，不影响正文和互动数据。
-    
+
     Args:
-        details: 详情列表
+        details: 详情列表（应已按 likedCount 降序排列）
         client: TikHubClient 实例
         max_comments_per_note: 每条笔记最多采集的评论数（防止超大帖子消耗太多 Token）
-    
+        top_n_notes: 只采点赞数前 N 条笔记的评论，其余跳过（节省 API 额度）
+
     Returns:
         (修改后的 details, 成功采集评论的数量)
     """
@@ -955,7 +961,13 @@ def fetch_comments_batch(details, client, max_comments_per_note=20):
     if not to_fetch:
         print(f"\n💬 评论采集：无需采集（所有笔记已有评论或 commentCount=0）")
         return details, 0
-    
+
+    # 只采 TOP N 笔记的评论（details 已按 likedCount 降序，to_fetch 顺序与之一致）
+    if len(to_fetch) > top_n_notes:
+        skipped = len(to_fetch) - top_n_notes
+        print(f"\n💬 评论采集：仅采 TOP {top_n_notes} 条高赞笔记（跳过后 {skipped} 条，节省 {skipped} 次 API 调用）")
+        to_fetch = to_fetch[:top_n_notes]
+
     print(f"\n{'='*60}")
     print(f"💬 独立评论采集（共 {len(to_fetch)} 条笔记有评论待采集）")
     print(f"{'-'*60}")
@@ -1139,7 +1151,7 @@ def crawl_blogger(keyword=None, user_id=None, output_dir=None, token=None, is_se
     print(f"{'='*60}")
     
     # 获取主页
-    profile, notes = get_profile(client, user_id, xsec_token)
+    profile, notes = get_profile(client, user_id, xsec_token, max_notes=max_notes)
     
     # 用 profile 中的真实昵称回填（修复只传 user_id 时 nickname 为空的问题）
     real_nickname = (profile.get("userBasicInfo", {}).get("nickname") or "").strip()
@@ -1165,6 +1177,7 @@ def crawl_blogger(keyword=None, user_id=None, output_dir=None, token=None, is_se
 
     # 🔒 硬上限截断：按赞数排序后取前 max_notes+10 条（含10条缓冲，应对详情获取失败）
     buffer = max_notes + 10
+    print(f"\n⚙️  目标 {max_notes} 条 | 实际将采集至多 {buffer} 条（含10条备用缓冲，应对详情拉取偶发失败）")
     if len(notes) > buffer:
         sorted_notes = sorted(notes.values(), key=lambda x: x.get("likedCount", 0), reverse=True)
         notes = {n["id"]: n for n in sorted_notes[:buffer]}
@@ -1182,41 +1195,58 @@ def crawl_blogger(keyword=None, user_id=None, output_dir=None, token=None, is_se
     with open(profile_path, "w", encoding="utf-8") as f:
         json.dump(profile, f, ensure_ascii=False, indent=2)
     
-    # 获取全部详情（轮次1）
-    details = get_all_details(client, notes, output_dir, nickname)
-    
-    # 轮次2：数据质量自愈（自动补调缺失字段）
-    details, quality_stats = repair_incomplete_notes(details, client)
-    
-    # 轮次3：独立评论采集（对缺评论但 commentCount>0 的笔记调独立评论端点）
-    details, comments_fetched = fetch_comments_batch(details, client)
-    quality_stats["comments_fetched"] = comments_fetched
-    
-    _print_final_quality_report(details, quality_stats)
-
-    # === 合规改造 v2.0：评论者身份脱敏（源头单点注入）===
-    # 规则：读者昵称/userid/头像/IP 全部删除，替换为「读者1 / 读者2 / 作者」
-    #      评论正文 content 保留用于研究。详见 scripts/utils/privacy.py
-    anonymized_count = 0
-    for d in details:
-        comments_obj = d.get("comments")
-        if isinstance(comments_obj, dict) and isinstance(comments_obj.get("list"), list):
-            before = len(comments_obj["list"])
-            anonymize_note_comments_inplace(d)
-            if before > 0:
-                anonymized_count += before
-        # 在每条 note 的 _meta 标记合规版本，方便下游审计
-        meta = d.setdefault("_meta", {})
-        meta["privacy_version"] = PRIVACY_VERSION
-
-    if anonymized_count > 0:
-        print(f"🔒 评论者身份已脱敏：{anonymized_count} 条评论 → 读者N / 作者（privacy_version={PRIVACY_VERSION}）")
-
-    # 保存详情
+    # ⚙️ 重复运行保护：若已有完整详情数据，直接复用，跳过采集
     details_path = os.path.join(output_dir, f"{safe_name}_notes_details.json")
-    with open(details_path, "w", encoding="utf-8") as f:
-        json.dump(details, f, ensure_ascii=False, indent=2)
-    
+    _skip_crawl = False
+    if os.path.exists(details_path):
+        try:
+            with open(details_path, "r", encoding="utf-8") as _f_existing:
+                _existing_details = json.load(_f_existing)
+            _existing_valid_count = len([d for d in _existing_details if "_error" not in d])
+            if _existing_valid_count >= max_notes:
+                print(f"\n⚠️  检测到已有完整数据（{_existing_valid_count} 条有效 ≥ 目标 {max_notes} 条）")
+                print(f"   跳过本次采集，直接使用现有数据。")
+                print(f"   如需重新采集，请删除：{details_path}")
+                details = _existing_details
+                _skip_crawl = True
+        except Exception:
+            pass  # 读取失败则正常走采集流程
+
+    if not _skip_crawl:
+        # 获取全部详情（轮次1）
+        details = get_all_details(client, notes, output_dir, nickname)
+
+        # 轮次2：数据质量自愈（自动补调缺失字段）
+        details, quality_stats = repair_incomplete_notes(details, client)
+
+        # 轮次3：独立评论采集（对缺评论但 commentCount>0 的笔记调独立评论端点）
+        details, comments_fetched = fetch_comments_batch(details, client)
+        quality_stats["comments_fetched"] = comments_fetched
+
+        _print_final_quality_report(details, quality_stats)
+
+        # === 合规改造 v2.0：评论者身份脱敏（源头单点注入）===
+        # 规则：读者昵称/userid/头像/IP 全部删除，替换为「读者1 / 读者2 / 作者」
+        #      评论正文 content 保留用于研究。详见 scripts/utils/privacy.py
+        anonymized_count = 0
+        for d in details:
+            comments_obj = d.get("comments")
+            if isinstance(comments_obj, dict) and isinstance(comments_obj.get("list"), list):
+                before = len(comments_obj["list"])
+                anonymize_note_comments_inplace(d)
+                if before > 0:
+                    anonymized_count += before
+            # 在每条 note 的 _meta 标记合规版本，方便下游审计
+            meta = d.setdefault("_meta", {})
+            meta["privacy_version"] = PRIVACY_VERSION
+
+        if anonymized_count > 0:
+            print(f"🔒 评论者身份已脱敏：{anonymized_count} 条评论 → 读者N / 作者（privacy_version={PRIVACY_VERSION}）")
+
+        # 保存详情
+        with open(details_path, "w", encoding="utf-8") as f:
+            json.dump(details, f, ensure_ascii=False, indent=2)
+
     ok_count = len([d for d in details if "_error" not in d])
     restricted_count = len([d for d in details if d.get("_content_restricted")])
     print(f"\n💾 笔记详情: {details_path} ({ok_count}条有效)")
