@@ -280,10 +280,6 @@ blogger-distiller/
 │       ├── first_run.py           # 首次运行合规确认
 │       ├── quality.py             # 数据质量检查工具
 │       └── transcript.py          # 口播提取（Whisper 集成，仅抖音）
-├── references/
-│   └── 张咋啦_创作指南.skill/      # 示例：可直接安装使用的创作指南 Skill
-│       └── SKILL.md
-└── data/                          # 采集数据输出目录
 ```
 
 ---
