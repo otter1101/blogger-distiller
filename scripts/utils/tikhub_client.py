@@ -459,8 +459,11 @@ class TikHubClient:
         if share_text:
             args["share_text"] = share_text
 
-        # 统一使用 image 端点池（web_v2/app 通用端点同时支持图文和视频笔记的文字+互动数据）
-        return self._router.call("fetch_note_detail_image", args, skip_endpoints=skip_endpoints)
+        # 视频笔记走 video 池（含 get_video_note_detail，能返回视频播放 URL）
+        # 图文笔记走 image 池（通用端点，标题+正文+互动数据）
+        pool = ("fetch_note_detail_video" if str(note_type or "").lower() == "video"
+                else "fetch_note_detail_image")
+        return self._router.call(pool, args, skip_endpoints=skip_endpoints)
 
     # ----------------------------------------------------------
     # 公开 API：获取笔记评论列表（自动 Fallback）

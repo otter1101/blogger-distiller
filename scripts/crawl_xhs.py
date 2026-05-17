@@ -507,7 +507,7 @@ def search_supplement(client, keyword, user_id, existing_notes, extra_keywords=N
 # ----------------------------------------------------------
 # Step 4: 逐条获取详情
 # ----------------------------------------------------------
-def get_all_details(client, notes_dict, output_dir, blogger_name):
+def get_all_details(client, notes_dict, output_dir, blogger_name, transcript=False):
     """逐条获取笔记详情，每10条checkpoint，支持断点恢复"""
     notes_list = sorted(notes_dict.values(), key=lambda x: x.get("likedCount", 0), reverse=True)
     total = len(notes_list)
@@ -568,6 +568,17 @@ def get_all_details(client, notes_dict, output_dir, blogger_name):
 
     print(f"\n📖 批量获取 {total} 条笔记详情（已有 {len(already_done_ids)} 条）...")
     print("=" * 60)
+
+    # 视频转写：提前加载模型（只加载一次），失败则静默关闭转写
+    _whisper_model = None
+    consecutive_transcript_fails = 0  # 连续转写失败计数（超时跳过不计）
+    transcript_ok = 0                 # 转写成功条数
+    transcript_total = 0              # 视频类型笔记总数
+    if transcript:
+        from utils.transcript import get_whisper_model
+        _whisper_model = get_whisper_model()
+        if _whisper_model is None:
+            print("⚠️ Whisper 模型加载失败，本次跳过口播转写")
 
     for i, note in enumerate(notes_list):
         nid = note["id"]
@@ -666,6 +677,39 @@ def get_all_details(client, notes_dict, output_dir, blogger_name):
                     },
                     "_feed_id": nid,
                 }
+                # 视频笔记：趁 URL 新鲜立刻转写（XHS 视频 URL 短命）
+                if _whisper_model and str(note_type).lower() == "video":
+                    from utils.transcript import transcribe_from_url, _get_video_duration
+                    transcript_total += 1
+                    video_url = note_obj.get("videoUrl", "")
+                    # web_v3 原始响应走 video.media.stream.h264[0].masterUrl
+                    if not video_url:
+                        _vraw = note_obj.get("video", {}) or {}
+                        _vstream = (_vraw.get("media", {}) or {}).get("stream", {}) or _vraw.get("stream", {})
+                        _vh264 = _vstream.get("h264", []) or _vstream.get("h265", [])
+                        if _vh264 and isinstance(_vh264, list):
+                            video_url = _vh264[0].get("masterUrl", "") or _vh264[0].get("master_url", "")
+                    if video_url:
+                        # 时长预检：超过 10 分钟跳过，不计入连续失败
+                        duration = _get_video_duration(video_url)
+                        if duration is not None and duration > 600:
+                            mins = int(duration // 60)
+                            unified["_transcript_error"] = "duration_exceeded"
+                        else:
+                            transcript_result = transcribe_from_url(video_url, model=_whisper_model)
+                            if transcript_result:
+                                unified["transcript"] = transcript_result
+                                consecutive_transcript_fails = 0
+                                transcript_ok += 1
+                            else:
+                                consecutive_transcript_fails += 1
+                                unified["_transcript_error"] = "transcribe_failed"
+                                if consecutive_transcript_fails >= 5:
+                                    print(f"\n\n⚠️  口播转写连续失败 {consecutive_transcript_fails} 条，可能是 Whisper 或 ffmpeg 遇到了问题。")
+                                    print("笔记内容和评论数据采集不受影响，继续进行。")
+                                    print("本次剩余笔记将跳过转写。如需排查，蒸馏完成后运行 check_env.py 检查环境。")
+                                    _whisper_model = None  # 关闭后续转写，不中断采集
+
                 details.append(unified)
 
                 # 提取互动数据（兼容 v7 扁平结构 + App-V2 interact_info 嵌套结构）
@@ -675,7 +719,15 @@ def get_all_details(client, notes_dict, output_dir, blogger_name):
                 collected = (note_obj.get("collected_count") or note_obj.get("collectedCount")
                              or interact.get("collected_count") or interact.get("collectedCount") or "?")
 
-                print(f" ✅ L:{liked} C:{collected}")
+                if "transcript" in unified:
+                    transcript_tag = f" 🎙{unified['transcript']['word_count']}字"
+                elif unified.get("_transcript_error") == "duration_exceeded":
+                    transcript_tag = f" ⏭时长超限"
+                elif unified.get("_transcript_error") == "transcribe_failed":
+                    transcript_tag = f" ⚠️转写失败"
+                else:
+                    transcript_tag = ""
+                print(f" ✅ L:{liked} C:{collected}{transcript_tag}")
                 ok_count += 1
         except Exception as e:
             err_str = str(e)[:50]
@@ -692,6 +744,8 @@ def get_all_details(client, notes_dict, output_dir, blogger_name):
             print(f"  --- checkpoint: {ok_count}✅ {err_count}❌ ---")
     
     print(f"\n完成: {ok_count}✅ {err_count}❌ / 共{total}条")
+    if transcript and transcript_total > 0:
+        print(f"🎙 转写：{transcript_ok} / {transcript_total} 条视频成功")
     
     # 清理checkpoint
     if os.path.exists(checkpoint_path):
@@ -822,6 +876,130 @@ def repair_incomplete_notes(details, client):
     stats["repaired"] = repaired_count
     print(f"\n轮次2 完成：✅ {repaired_count}/{len(to_repair_filtered)} 条补齐了部分字段")
     return details, stats
+
+
+# ----------------------------------------------------------
+# Step 4.6: 视频 URL 补取 + Whisper 转写（绕过死链缓存）
+# ----------------------------------------------------------
+def _extract_video_url_from_raw(raw):
+    """从 TikHub API 原始响应中提取视频流 URL（兼容多种响应结构）"""
+    if not isinstance(raw, dict):
+        return ""
+    data = raw.get("data", raw)
+    if isinstance(data, dict) and "data" in data:
+        data = data["data"]
+    if isinstance(data, list) and data:
+        data = data[0]
+    if not isinstance(data, dict):
+        return ""
+    note_obj = {}
+    items = data.get("items", [])
+    if items and isinstance(items, list):
+        first = items[0] if items else {}
+        note_obj = (first.get("noteCard") or first.get("note_card")
+                    or first.get("note") or {}) if isinstance(first, dict) else {}
+    if not note_obj:
+        note_obj = data.get("note") or data
+    if not isinstance(note_obj, dict):
+        return ""
+    url = note_obj.get("videoUrl", "")
+    if url:
+        return url
+    vraw = note_obj.get("video", {}) or {}
+    vstream = (vraw.get("media", {}) or {}).get("stream", {}) or vraw.get("stream", {})
+    vh264 = vstream.get("h264", []) or vstream.get("h265", [])
+    if vh264 and isinstance(vh264, list):
+        return vh264[0].get("masterUrl", "") or vh264[0].get("master_url", "")
+    return ""
+
+
+def supplement_video_urls_for_whisper(details, client, transcript):
+    """
+    主采集结束后，对 videoUrl 为空的视频笔记补取视频 URL 并立刻转写。
+    直接调用 TikHub API（绕过路由器死链缓存），先试 app，再试 web_v3（需 xsec_token）。
+    仅在 transcript=True 时执行。
+    """
+    if not transcript:
+        return
+
+    from utils.transcript import get_whisper_model, transcribe_from_url, _get_video_duration
+    whisper_model = get_whisper_model()
+    if not whisper_model:
+        return
+
+    candidates = [
+        (i, d) for i, d in enumerate(details)
+        if (d.get("_meta", {}).get("note_type", "").lower() == "video"
+            and "transcript" not in d
+            and not d.get("_content_restricted")
+            and "_error" not in d)
+    ]
+
+    if not candidates:
+        return
+
+    print(f"\n🎙 视频 URL 补取：尝试 {len(candidates)} 条（绕过死链缓存，直接试 app / web_v3）")
+    ok = 0
+
+    for idx, (i, entry) in enumerate(candidates, 1):
+        xsec_token = entry.get("_meta", {}).get("xsec_token", "")
+        note_id = entry.get("_feed_id", "")
+        title = entry.get("_meta", {}).get("list_title", "")[:25]
+        if not note_id:
+            continue
+
+        print(f"  [{idx}/{len(candidates)}] {title}...", end="", flush=True)
+        video_url = ""
+
+        # 尝试 1：app 端点（有 token 就带，没有就裸调）
+        try:
+            params = {"note_id": note_id}
+            if xsec_token:
+                params["xsec_token"] = xsec_token
+            raw = client._request("GET", "/api/v1/xiaohongshu/app/get_note_info", params=params)
+            video_url = _extract_video_url_from_raw(raw)
+            if video_url:
+                print(" app✅", end="", flush=True)
+        except Exception:
+            pass
+
+        # 尝试 2：web_v3 端点（仅有 xsec_token 时）
+        if not video_url and xsec_token:
+            try:
+                raw = client._request(
+                    "GET", "/api/v1/xiaohongshu/web_v3/fetch_note_detail",
+                    params={"note_id": note_id, "xsec_token": xsec_token}
+                )
+                video_url = _extract_video_url_from_raw(raw)
+                if video_url:
+                    print(" web_v3✅", end="", flush=True)
+            except Exception:
+                pass
+
+        if not video_url:
+            print(" 无URL")
+            continue
+
+        # 时长预检
+        duration = _get_video_duration(video_url)
+        if duration is not None and duration > 600:
+            entry["_transcript_error"] = "duration_exceeded"
+            print(" ⏭时长超限")
+            continue
+
+        # Whisper 转写
+        result = transcribe_from_url(video_url, model=whisper_model)
+        if result:
+            entry["transcript"] = result
+            ok += 1
+            print(f" 🎙{result['word_count']}字")
+        else:
+            entry["_transcript_error"] = "transcribe_failed"
+            print(" ⚠️转写失败")
+
+        time.sleep(0.3)
+
+    print(f"\n🎙 视频 URL 补取完成：{ok}/{len(candidates)} 条转写成功")
 
 
 def _extract_supplement_entry(raw, note_id):
@@ -1105,7 +1283,7 @@ def _print_final_quality_report(details, stats):
 # ----------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------
-def crawl_blogger(keyword=None, user_id=None, output_dir=None, token=None, is_self=False, extra_keywords=None, max_notes=80):
+def crawl_blogger(keyword=None, user_id=None, output_dir=None, token=None, is_self=False, extra_keywords=None, max_notes=80, transcript=False):
     """
     完整爬取一个博主的全量数据。
     
@@ -1195,7 +1373,7 @@ def crawl_blogger(keyword=None, user_id=None, output_dir=None, token=None, is_se
     with open(profile_path, "w", encoding="utf-8") as f:
         json.dump(profile, f, ensure_ascii=False, indent=2)
     
-    # ⚙️ 重复运行保护：若已有完整详情数据，直接复用，跳过采集
+    # ⑥ 重复运行保护：已有完整数据（条数 ≥ 目标）则跳过采集，直接复用
     details_path = os.path.join(output_dir, f"{safe_name}_notes_details.json")
     _skip_crawl = False
     if os.path.exists(details_path):
@@ -1210,11 +1388,11 @@ def crawl_blogger(keyword=None, user_id=None, output_dir=None, token=None, is_se
                 details = _existing_details
                 _skip_crawl = True
         except Exception:
-            pass  # 读取失败则正常走采集流程
+            pass
 
     if not _skip_crawl:
         # 获取全部详情（轮次1）
-        details = get_all_details(client, notes, output_dir, nickname)
+        details = get_all_details(client, notes, output_dir, nickname, transcript=transcript)
 
         # 轮次2：数据质量自愈（自动补调缺失字段）
         details, quality_stats = repair_incomplete_notes(details, client)
@@ -1225,27 +1403,27 @@ def crawl_blogger(keyword=None, user_id=None, output_dir=None, token=None, is_se
 
         _print_final_quality_report(details, quality_stats)
 
-        # === 合规改造 v2.0：评论者身份脱敏（源头单点注入）===
-        # 规则：读者昵称/userid/头像/IP 全部删除，替换为「读者1 / 读者2 / 作者」
-        #      评论正文 content 保留用于研究。详见 scripts/utils/privacy.py
-        anonymized_count = 0
-        for d in details:
-            comments_obj = d.get("comments")
-            if isinstance(comments_obj, dict) and isinstance(comments_obj.get("list"), list):
-                before = len(comments_obj["list"])
-                anonymize_note_comments_inplace(d)
-                if before > 0:
-                    anonymized_count += before
-            # 在每条 note 的 _meta 标记合规版本，方便下游审计
-            meta = d.setdefault("_meta", {})
-            meta["privacy_version"] = PRIVACY_VERSION
+    # 视频 URL 补取：放在 _skip_crawl 判断外，复用旧数据时也能执行
+    supplement_video_urls_for_whisper(details, client, transcript)
 
-        if anonymized_count > 0:
-            print(f"🔒 评论者身份已脱敏：{anonymized_count} 条评论 → 读者N / 作者（privacy_version={PRIVACY_VERSION}）")
+    # === 合规改造 v2.0：评论者身份脱敏（源头单点注入）===
+    anonymized_count = 0
+    for d in details:
+        comments_obj = d.get("comments")
+        if isinstance(comments_obj, dict) and isinstance(comments_obj.get("list"), list):
+            before = len(comments_obj["list"])
+            anonymize_note_comments_inplace(d)
+            if before > 0:
+                anonymized_count += before
+        meta = d.setdefault("_meta", {})
+        meta["privacy_version"] = PRIVACY_VERSION
 
-        # 保存详情
-        with open(details_path, "w", encoding="utf-8") as f:
-            json.dump(details, f, ensure_ascii=False, indent=2)
+    if anonymized_count > 0:
+        print(f"🔒 评论者身份已脱敏：{anonymized_count} 条评论 → 读者N / 作者（privacy_version={PRIVACY_VERSION}）")
+
+    # 保存详情
+    with open(details_path, "w", encoding="utf-8") as f:
+        json.dump(details, f, ensure_ascii=False, indent=2)
 
     ok_count = len([d for d in details if "_error" not in d])
     restricted_count = len([d for d in details if d.get("_content_restricted")])
@@ -1301,6 +1479,7 @@ if __name__ == "__main__":
     parser.add_argument("--keywords", help="领域关键词（逗号分隔），用于搜索补充。如：烘焙,食谱,探店")
     parser.add_argument("--max-notes", type=int, default=80,
                         help="最大爬取条数上限（默认80，用户可根据需要调大，如 --max-notes 100）")
+    parser.add_argument("--transcript", action="store_true", help="开启视频口播转写（需要 Whisper）")
     args = parser.parse_args()
 
     if not args.keyword and not args.user_id:
@@ -1330,6 +1509,7 @@ if __name__ == "__main__":
         is_self=args.is_self,
         extra_keywords=extra_keywords,
         max_notes=args.max_notes,
+        transcript=args.transcript,
     )
     elapsed = time.time() - start
     

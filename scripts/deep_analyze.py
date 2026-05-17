@@ -716,6 +716,12 @@ def gen_data_draft(nickname, stats, top10, category_stats, tag_freq,
             for c in n["comment_list"][:5]:
                 # v2.0 方案A：作者已回填真实昵称，无需再加 [作者] prefix
                 lines.append(f"- {c['user']}：{c['content'][:80]}")
+        if n.get("transcript"):
+            transcript_preview = n["transcript"][:500]
+            lines.append(f"\n视频口播（前500字）：")
+            lines.append(f"> {transcript_preview}")
+            if len(n["transcript"]) > 500:
+                lines.append(f"> ...（共{len(n['transcript'])}字）")
 
     # ---- 认知层数据（新增）----
     lines.append(f"\n---")
@@ -769,7 +775,7 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
                      title_patterns, emoji_info, cta_info, structure_info,
                      frequency_info, growth_info, notes,
                      opinion_candidates, opinion_mode, writing_structure, value_words,
-                     full_notes=None, mode="A", platform="xhs"):
+                     full_notes=None, mode="A", platform="xhs", has_transcript=False):
     """
     生成 AI蒸馏任务.md：自包含文件，内联所有数据原材料 + HTML/Skill 精细规格。
     AI 只读本文件即可完成蒸馏，不需要打开其他文件。
@@ -1005,6 +1011,12 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
             for c in n["comment_list"][:5]:
                 # v2.0 方案A：作者已回填真实昵称，无需再加 [作者] prefix
                 lines.append(f"- {c['user']}：{c['content'][:80]}")
+        if n.get("transcript"):
+            transcript_preview = n["transcript"][:500]
+            lines.append(f"\n视频口播（前500字）：")
+            lines.append(f"> {transcript_preview}")
+            if len(n["transcript"]) > 500:
+                lines.append(f"> ...（共{len(n['transcript'])}字）")
         lines.append("")
 
     # ---- 发展趋势 ----
@@ -1159,6 +1171,12 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
         f"**数据来源**：上方基础统计",
         f'**不允许**：不能写"该博主表现优秀"等空话，每个字段必须有具体数字',
         f"",
+        f"**赛道概括（放在模块1结尾，底层公式下方，独立一块）**：",
+        f"用 1 句话写清楚：赛道标签（如「女性成长 × 自媒体方法论」）+ 核心受众是谁 + 他们的底层需求是什么。",
+        f'格式参考："做「XX × XX」，打 XX 人群——他们不需要 XX，需要的是 XX。"',
+        f'模式 B 时改为诊断视角："你的账号定位在「XX × XX」赛道，核心受众是 XX。"',
+        f'禁止泛化描述（如"年轻女性""都市白领"），必须精确到有学历/有职场背景/有特定焦虑等可识别特征。',
+        f"",
         f"### 模块 2：👤 人设拆解（默认展开）",
         f"",
         f"**必须包含**：",
@@ -1170,9 +1188,11 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
         f'   必须回答"粉丝跟 TA 的关系是什么"',
         f'   格式："粉丝把 TA 当作先行者——TA 替他们试过了，他们只需要跟"',
         f"",
-        f"3. 护城河分析（1 段话，3-5 句）",
-        f"   什么是别人模仿不了的？",
-        f'   格式：先判断（"TA 的护城河不是技巧，而是..."），再给证据（引用具体笔记数据）',
+        f"3. 护城河分析（固定3段，总字数不超过200字）",
+        f"   第1段：拆解2-3个具体要素，逐一命名，括号内加一句简注（是什么、带来什么）。",
+        f"   第2段：解释为什么组合比单项更难复制（1句）+ 引用具体数据或评论原文举证（1-2句）。",
+        f"   第3段：有口播数据时，判断口语节奏/用词是否是强身份符号；无口播数据时，用一句话做总体判断。",
+        f'   禁止笼统结论（如"信任感""真实感"），禁止超过3段，禁止每段超过3句。',
         f"```",
         f"",
         f"**写作要求**：",
@@ -1296,25 +1316,149 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
         f"",
         f"### 模块 6：📝 内容公式速查（默认展开，精华版）",
         f"",
-        f"**必须包含**：",
+        f"**新增 CSS**（追加到 HTML `<style>` 区域，已有的样式不删）：",
+        f"```css",
+        f"/* ── Formula ifthen: 框架名(大粗) → 公式(中) → 示例(小muted) ── */",
+        f".ifthen-formula .it-label {{",
+        f"  font-family: var(--serif);",
+        f"  font-size: 17px;",
+        f"  font-weight: 700;",
+        f"  letter-spacing: 0;",
+        f"  color: var(--ink);",
+        f"  margin-bottom: 8px;",
+        f"}}",
+        f".ifthen-formula .it-rule {{",
+        f"  font-size: 14px;",
+        f"  font-weight: 400;",
+        f"  color: var(--ink);",
+        f"  margin-bottom: 6px;",
+        f"}}",
+        f".ifthen-formula .it-ev {{",
+        f"  font-size: 12px;",
+        f"  color: var(--muted);",
+        f"}}",
+        f"/* ── Section tag (M6 sub-headings) ── */",
+        f".section-tag {{",
+        f"  display: inline-block;",
+        f"  background: var(--accent);",
+        f"  color: var(--inv-text);",
+        f"  font-family: var(--serif);",
+        f"  font-size: 14px;",
+        f"  font-weight: 700;",
+        f"  letter-spacing: 0.04em;",
+        f"  padding: 4px 12px;",
+        f"  margin-top: 24px;",
+        f"  margin-bottom: 16px;",
+        f"}}",
+        f".section-tag:first-child,",
+        f".divider-wrap + .section-tag {{ margin-top: 0; }}",
+        f"/* ── Emotion arc sub-blocks ── */",
+        f".arc-block {{",
+        f"  margin-bottom: 14px;",
+        f"}}",
+        f".arc-block .arc-title {{",
+        f"  font-weight: 700;",
+        f"  font-size: 15px;",
+        f"  margin-bottom: 4px;",
+        f"}}",
+        f".arc-block p {{",
+        f"  font-size: 14px;",
+        f"  margin-bottom: 4px;",
+        f"}}",
+        f"/* ── Table: emphasize first column ── */",
+        f"table .td-emph {{",
+        f"  font-size: 15px;",
+        f"  font-weight: 700;",
+        f"  white-space: nowrap;",
+        f"}}",
         f"```",
-        f"标题公式 TOP5：",
-        f"| # | 公式名 | 使用率 | 模板 | 博主原标题示例 |",
-        f"|---|--------|--------|------|-------------|",
-        f'| 1 | 数字型 | 35% | "N个XXX，第X个..." | "5个让我后悔的决定" |',
         f"",
-        f"开头公式 TOP3（一句话 + 示例）",
-        f"CTA 公式 TOP3（一句话 + 示例）",
-        f"标签策略：固定标签 + 热点搭配规则",
+        f"**模块6 HTML结构（按此顺序生成7个板块）**：",
         f"",
-        f"→ 完整公式详见蒸馏出的 skill 文件",
+        f'**板块1：正文叙事公式**（数据来源：有逐字稿写"Whisper 逐字稿"，无则写"笔记正文"）',
+        f"```html",
+        f'<div class="section-tag">正文叙事公式（从{{数据来源}}提炼）</div>',
+        f'<div class="ifthen ifthen-formula">',
+        f'  <div class="it-label">框架 A · {{框架名}} · 使用率 ≈{{X}}%</div>',
+        f'  <div class="it-rule">{{公式结构描述，如"从一件具体小事切入 → 在经历中找到转折点 → 蒸馏出可迁移的原则"}}</div>',
+        f'  <div class="it-ev">例：《{{标题}}》— {{简述}} ｜ 段落配比：Hook {{X}}% → 故事叙述 {{Y}}% → 感悟输出 {{Z}}% → 行动建议 {{W}}%</div>',
+        f"</div>",
+        f"<!-- 重复2-4个框架，按使用率降序 -->",
+        f'<details style="margin-top:16px">',
+        f"  <summary>展开：留存钩子清单（从内容中提取的{{N}}种拉停机制）→</summary>",
+        f'  <div class="detail-body">',
+        f"    <table>",
+        f"      <thead><tr><th>钩子类型</th><th>句式模板</th><th>出处示例</th></tr></thead>",
+        f"      <tbody>",
+        f'        <tr><td>{{类型，如"悬念预告"}}</td><td>「{{句式模板}}」</td><td>《{{标题}}》开头</td></tr>',
+        f"        <!-- 3-5行 -->",
+        f"      </tbody>",
+        f"    </table>",
+        f'    <p class="muted" style="margin-top:12px">使用规律：{{如"每条内容前30秒/前3段内平均叠加1.5个钩子。感悟类偏好X+Y组合，方法论类偏好A+B组合。"}}</p>',
+        f"  </div>",
+        f"</details>",
+        f"```",
+        f"",
+        f"**板块2：语言指纹速查**（数据来源同上）",
+        f"```html",
+        f'<div class="section-tag">语言指纹速查（从{{数据来源}}提取）</div>',
+        f"<table>",
+        f"  <thead><tr><th>维度</th><th>特征</th><th>示例</th></tr></thead>",
+        f"  <tbody>",
+        f'    <tr><td class="td-emph">高频用语</td><td>「{{用语1}}」「{{用语2}}」「{{用语3}}」</td><td>{{使用频次和场景描述}}</td></tr>',
+        f'    <tr><td class="td-emph">力量短语</td><td>「{{短语1}}」「{{短语2}}」</td><td>{{效果描述}}</td></tr>',
+        f'    <tr><td class="td-emph">开场签名</td><td>「{{开场句式1}}」/「{{开场句式2}}」</td><td>{{功能描述}}</td></tr>',
+        f'    <tr><td class="td-emph">收尾签名</td><td>{{类型1}}→{{句式1}} ｜ {{类型2}}→{{句式2}}</td><td>{{混用规则}}</td></tr>',
+        f'    <tr><td class="td-emph">句式节奏</td><td>{{风格描述，如"短句密集+口语化连接词"}}</td><td>「{{示例}}」</td></tr>',
+        f"  </tbody>",
+        f"</table>",
+        f"```",
+        f"",
+        f"**板块3：情感弧线**",
+        f"```html",
+        f'<div class="section-tag">情感弧线 · 主导模式：{{模式名，如"低开高走型"}}</div>',
+        f'<div class="arc-block">',
+        f'  <div class="arc-title">情感节奏</div>',
+        f'  <p>{{走势描述，如"困惑/焦虑低点切入 → 经历中的转折点（情感峰值）→ 感悟升华收尾"}}</p>',
+        f"</div>",
+        f'<div class="arc-block">',
+        f'  <div class="arc-title">张力来源</div>',
+        f'  <p><strong>{{张力轴心，如"个体真实选择 vs 社会期待"}}</strong>（{{具体案例}}）</p>',
+        f'  <p>制造方式：{{如"标题直接点出被质疑的行为，让张力在第一秒出现。"}}</p>',
+        f"</div>",
+        f'<div class="arc-block">',
+        f'  <div class="arc-title">解决方式</div>',
+        f'  <p>{{如"不化解，而是超越——给一个更高维度视角，让读者自己判断。"}}</p>',
+        f"</div>",
+        f"```",
+        f"",
+        f"**板块4-7：保留原有内容，每个板块前加 section-tag 标题**",
+        f"```html",
+        f'<div class="section-tag">标题公式 TOP5</div>',
+        f"<!-- 原有标题公式表格，使用率必须是真实统计数字 -->",
+        f"<!-- | # | 公式名 | 使用率 | 模板 | 博主原标题示例 | -->",
+        f"",
+        f'<div class="section-tag">开头公式 TOP3</div>',
+        f"<!-- 原有开头公式，一句话+示例，示例必须是博主真实原文 -->",
+        f"",
+        f'<div class="section-tag">CTA 公式 TOP3</div>',
+        f"<!-- 原有CTA公式，一句话+示例 -->",
+        f"",
+        f'<div class="section-tag">标签策略</div>',
+        f"<!-- 原有标签策略：固定标签+热点搭配规则 -->",
+        f"```",
+        f"",
+        f"**M6 末尾互引**（放在标签策略之后、模块 `</div>` 之前）：",
+        f"```html",
+        f'<p class="muted" style="margin-top:24px; border-top:1px solid rgba(122,110,101,0.3); padding-top:16px">📎 以上为速查精华版。完整的正文公式、情感节奏公式、语言DNA词库等详见蒸馏产出的 <strong>博主Skill文件</strong>（第三章 · 内容层 3.3-3.5）。</p>',
         f"```",
         f"",
         f"**写作要求**：",
-        f'- 使用率必须是真实统计数字，不是"较多使用"',
-        f"- 示例必须是博主的真实标题/开头/CTA，不是 AI 编的",
+        f"- 板块1-3为新增内容，数据来自逐字稿（有）或笔记正文（无），所有占位符必须填入真实内容",
+        f"- 板块4-7原有内容不变，使用率/示例必须是真实统计数字和博主原文",
+        f"- 板块总行数控制在110行以内（板块1的留存钩子用details折叠可减少视觉长度）",
         f"",
-        f"**数据来源**：标题模式统计 + CTA 统计 + 标签 TOP20",
+        f"**数据来源**：标题模式统计 + CTA 统计 + 标签 TOP20 + TOP10 数据包（正文/逐字稿提取）",
         f"",
         f"### 模块 7：💡 选题灵感 TOP15（默认展开）",
         f"",
@@ -1628,6 +1772,8 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
         f"",
         f"## 三、内容层 — {content_header}",
         f"",
+        f'> 💡 3.3-3.5 为内容深度分析章节。数据来源：视频博主取 Whisper 逐字稿，图文博主取笔记正文。蒸馏报告 M6 中的"内容公式速查"是这三节的精简速查版。',
+        f"",
         f"### 3.1 标题公式（TOP5 可直接套用）",
         f"",
         f"| # | 公式名称 | 使用率 | 模板（可填空） | 博主原标题 | 你的改编建议 |",
@@ -1673,7 +1819,11 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
         f"**模板 3：{{类型名}}（使用率 {{X}}%）**",
         f"- ...",
         f"",
-        f"### 3.3 正文骨架",
+        f"### 3.3 正文公式",
+        f"",
+        f"> 数据来源：{'Whisper 逐字稿' if has_transcript else '笔记正文'}",
+        f"",
+        f"#### 3.3.1 基础正文骨架",
         f"",
         f"**典型结构（{{X}}% 的笔记使用此结构）：**",
         f"```",
@@ -1694,7 +1844,138 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
         f"| 列表使用率 | {list_pct}% | 高→TA偏好要点式 / 低→TA偏好叙述式 |",
         f"| 小标题使用率 | {heading_pct}% | |",
         f"",
-        f"### 3.4 CTA 策略",
+        f"#### 3.3.2 叙事框架库",
+        f"",
+        f"从{nickname}的内容中识别出以下叙事框架（按使用率排序）：",
+        f"",
+        f"**框架 1：{{框架名}} · 使用率 ≈ {{X}}%**",
+        f"- 结构：{{第一阶段}} → {{第二阶段}} → {{第三阶段}}",
+        f"- 段落配比：Hook {{X}}% → 叙述 {{Y}}% → 感悟 {{Z}}% → 建议 {{W}}%",
+        f"- 适用类型：{{类型1、类型2}}",
+        f"- 仿写模板：",
+        f"  ```",
+        f"  {{可填空模板第1行}}",
+        f"  {{可填空模板第2行}}",
+        f"  {{可填空模板第3行}}",
+        f"  ```",
+        f"- 📍 证据：「{{原文引用，30-50字}}」——来源：《{{标题}}》",
+        f"",
+        f"**框架 2：{{框架名}} · 使用率 ≈ {{X}}%**",
+        f"- （同上格式）",
+        f"",
+        f"（通常3-5种框架，按使用率降序）",
+        f"",
+        f"#### 3.3.3 段落功能标签参考",
+        f"",
+        f"| 功能标签 | 占比 | 作用 | 识别信号词 |",
+        f"|---------|------|------|----------|",
+        f"| Hook | {{X}}% | 抓注意力 | {{信号词}} |",
+        f"| 叙述 | {{X}}% | 展开故事/论点 | {{信号词}} |",
+        f"| 感悟 | {{X}}% | 升华主题 | {{信号词}} |",
+        f"| 建议 | {{X}}% | 给行动指引 | {{信号词}} |",
+        f"| 衔接 | {{X}}% | 段落过渡 | {{信号词}} |",
+        f"",
+        f"#### 3.3.4 转折词库",
+        f"",
+        f"| 位置 | 词/句式 | 频次 |",
+        f"|------|--------|------|",
+        f"| {{开头/中段/收尾}} | 「{{词句式}}」 | {{N}}次 |",
+        f"| ... | ... | ... |",
+        f"",
+        f"### 3.4 情感节奏公式",
+        f"",
+        f"> 数据来源：{'Whisper 逐字稿' if has_transcript else '笔记正文'}",
+        f"",
+        f"#### 3.4.1 主导情感弧线",
+        f"",
+        f'**模式名：{{如"低开高走型"/"平稳递进型"/"波浪起伏型"}}**',
+        f"- 走势：{{低点描述}} → {{转折描述}} → {{高点描述}}",
+        f"- 适用框架：框架 {{编号}}",
+        f"- 📍 证据：「{{原文引用}}」",
+        f"",
+        f"#### 3.4.2 情感峰值制造法",
+        f"",
+        f"| 制造手法 | 描述 | 示例 |",
+        f"|---------|------|------|",
+        f"| {{手法名}} | {{怎么用}} | 「{{原文示例}}」 |",
+        f"| ... | ... | ... |",
+        f"",
+        f"（通常4-6种）",
+        f"",
+        f"#### 3.4.3 张力来源公式",
+        f"",
+        f'- **固定轴心**：{{博主张力围绕什么核心矛盾，如"个体真实选择 vs 社会期待"}}',
+        f'- **制造方式**：{{如"标题直接点出被质疑的行为，让张力在第一秒出现"}}',
+        f'- **解决方式**：{{如"不化解，而是超越——给一个更高维度视角"}}',
+        f"",
+        f"#### 3.4.4 留存钩子配方",
+        f"",
+        f"| 钩子类型 | 句式模板 | 出处 | 使用场景 |",
+        f"|---------|---------|------|---------|",
+        f'| {{类型，如"悬念预告"}} | 「{{模板句式}}」 | 《{{标题}}》 | {{适用什么内容}} |',
+        f"| ... | ... | ... | ... |",
+        f"",
+        f"**推荐组合**：",
+        f"- 感悟类内容：{{组合1}} + {{组合2}}",
+        f"- 方法论类内容：{{组合3}} + {{组合4}}",
+        f'- 使用规律：{{如"每条内容前30秒/前3段内平均叠加1.5个钩子"}}',
+        f"",
+        f"### 3.5 语言DNA",
+        f"",
+        f"> 数据来源：{'Whisper 逐字稿' if has_transcript else '笔记正文'}。该博主内容语言的指纹特征。",
+        f"",
+        f"#### 3.5.1 高频用语 TOP",
+        f"",
+        f"{'视频博主即口头禅，' if has_transcript else ''}以下为该博主最具辨识度的高频用语：",
+        f"",
+        f"| 高频用语 | 频次 | 出现位置 | 功能 |",
+        f"|---------|------|---------|------|",
+        f"| 「{{用语}}」 | {{N}}次/篇 | {{开头/中段/收尾}} | {{功能描述}} |",
+        f"| ... | ... | ... | ... |",
+        f"",
+        f"（5-10个）",
+        f"",
+        f"#### 3.5.2 力量短语库",
+        f"",
+        f"| 短语 | 触发场景 | 效果 |",
+        f"|------|---------|------|",
+        f"| 「{{短语}}」 | {{什么时候用}} | {{制造什么效果}} |",
+        f"| ... | ... | ... |",
+        f"",
+        f"#### 3.5.3 句式节奏规则",
+        f"",
+        f'- **整体风格**：{{如"短句密集+口语化连接词，制造现场思考而非播报感"}}',
+        f'- **典型节奏模式**：{{如"3-5个短句→1个长句总结→转折词→下一轮"}}',
+        f"- **连接词偏好**：{{高频连接词列表}}",
+        f"- **禁忌句式**：{{博主从不使用的句式}}",
+        f"",
+        f"#### 3.5.4 人称策略",
+        f"",
+        f"| 人称 | 使用场景 | 示例 |",
+        f"|------|---------|------|",
+        f"| {{第一人称/第二人称/第三人称}} | {{什么内容用}} | 「{{原文示例}}」 |",
+        f"| ... | ... | ... |",
+        f"",
+        f"#### 3.5.5 开场/收尾签名句式",
+        f"",
+        f"**开场签名**：",
+        f"- 句式：「{{模板}}」",
+        f'- 功能：{{如"建立即时感，把读者拉进当下这一刻"}}',
+        ('- ⚠️ 注意："时间戳型开场"等手法仅适用于视频博主' if has_transcript else ''),
+        f"",
+        f"**收尾签名**：",
+        f"- {{类型1}}类内容 → 「{{收尾句式1}}」",
+        f"- {{类型2}}类内容 → 「{{收尾句式2}}」",
+        f'- 混用规则：{{如"两种混用会削弱节奏"}}',
+        f"",
+        f"#### 3.5.6 对话感制造法",
+        f"",
+        f"| 技法 | 描述 | 示例 |",
+        f"|------|------|------|",
+        f'| {{如"设问"}} | {{怎么用}} | 「{{原文示例}}」 |',
+        f"| ... | ... | ... |",
+        f"",
+        f"### 3.6 CTA 策略",
         f"",
         f"| CTA 类型 | 使用率 | 典型话术（博主原文） |",
         f"|---------|--------|-------------------|",
@@ -1713,7 +1994,7 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
         f"- 最有效组合：{{类型A}} + {{类型B}}（数据对比证据：含此组合的笔记均赞{{X}} vs 不含的均赞{{Y}}）",
         f"- 放置位置：{{末尾/正文中/开头}}",
         f"",
-        f"### 3.5 视觉规则",
+        f"### 3.7 视觉规则",
         f"",
     ]
 
@@ -1731,7 +2012,7 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
         f"  - 数据对比：视频均赞{{X}} vs 图文均赞{{Y}}（从 TOP10 数据计算）",
         f"  - 建议：{{基于数据的建议}}",
         f"",
-        f"### 3.6 标签策略",
+        f"### 3.8 标签策略",
         f"",
     ]
 
@@ -1746,7 +2027,7 @@ def gen_distill_task(nickname, stats, top10, category_stats, tag_freq,
         f"- **热点标签规则**：每篇加{{1-2}}个当前热点标签",
         f"- **标签总数**：每篇{{X}}-{{Y}}个",
         f"",
-        f"### 3.7 发布节奏",
+        f"### 3.9 发布节奏",
         f"",
     ]
 
@@ -1916,6 +2197,66 @@ def _restore_author_identity(analysis, nickname):
                 _patch_comment(c)
 
 
+def gen_transcript_doc(nickname, raw_details):
+    """
+    从 notes_details.json 提取所有口播转写稿，生成逐字稿 MD 文档。
+
+    Returns:
+        (str, int) — (MD 文档内容, 有口播的笔记数量)
+        如果无任何口播数据，返回 (None, 0)
+    """
+    try:
+        from utils.transcript import restore_punctuation
+    except ImportError:
+        def restore_punctuation(t):
+            return t
+
+    lines = [
+        f"# {nickname} 口播逐字稿\n\n",
+        f"> 由 Whisper 自动转写 · 已做繁简转换 + 基础标点处理\n\n---\n",
+    ]
+
+    count = 0
+    for entry in raw_details:
+        if "_error" in entry:
+            continue
+
+        t = entry.get("transcript")
+        if not t or not isinstance(t, dict) or not t.get("text"):
+            continue
+
+        # 兼容两种数据结构：
+        # 1. crawl 直出：顶层有 note / transcript
+        # 2. 嵌套结构：data.note
+        note = entry.get("note") or entry.get("data", {}).get("note", {})
+        raw_title = (note.get("title") or "").strip()
+        if not raw_title:
+            raw_desc = (note.get("desc") or "")
+            raw_title = raw_desc.split("\n")[0].strip()[:40]
+        title = raw_title or "无标题"
+
+        interact = note.get("interactInfo") or note.get("interact_info") or {}
+        liked = interact.get("likedCount") or interact.get("liked_count") or "0"
+        duration = int(t.get("duration") or 0)
+
+        # 如果没有 text_raw 备份字段，说明 text 还是未处理的原始转写，需要处理
+        text = t.get("text", "").strip()
+        if not text:
+            continue
+        if "text_raw" not in t:
+            text = restore_punctuation(text)
+
+        lines.append(f"\n## {title}（赞 {liked} | 时长 {duration}秒）\n\n")
+        lines.append(text)
+        lines.append("\n\n---\n")
+        count += 1
+
+    if count == 0:
+        return None, 0
+
+    return "".join(lines), count
+
+
 def deep_analyze(analysis_path, nickname, output_dir, notes_details_path=None, mode="A"):
     """
     执行确定性深度分析，生成增强版文档 + AI蒸馏任务.md。
@@ -1948,6 +2289,7 @@ def deep_analyze(analysis_path, nickname, output_dir, notes_details_path=None, m
 
     # 加载原始详情（如有）用于更深入分析
     full_notes = None
+    raw_details = None
     platform = "xhs"  # 默认小红书，有详情文件时从中检测
     if notes_details_path and os.path.exists(notes_details_path):
         with open(notes_details_path, "r", encoding="utf-8") as f:
@@ -2041,19 +2383,38 @@ def deep_analyze(analysis_path, nickname, output_dir, notes_details_path=None, m
             f.write(md_content)
         print(f"  📄 {md_name}")
 
+    # ---- 检测是否有逐字稿数据 ----
+    has_transcript = raw_details is not None and any(
+        (d.get("transcript") or {}).get("text")
+        for d in raw_details
+        if "_error" not in d
+    )
+
     # ---- 生成 AI蒸馏任务 ----
     task_content = gen_distill_task(
         nickname, stats, top10, category_stats, tag_freq,
         title_patterns, emoji_info, cta_info, structure_info,
         frequency_info, growth_info, notes,
         opinion_candidates, opinion_mode, writing_structure, value_words,
-        full_notes=full_notes, mode=mode, platform=platform
+        full_notes=full_notes, mode=mode, platform=platform,
+        has_transcript=has_transcript
     )
     task_rel_path = os.path.join("_过程文件", "原始素材", f"{safe_name}_AI蒸馏任务.md")
     task_path = os.path.join(output_dir, task_rel_path)
     with open(task_path, "w", encoding="utf-8") as f:
         f.write(task_content)
     print(f"  📋 AI蒸馏任务: {task_path}")
+
+    # ---- 生成口播逐字稿 MD（仅当有转写数据时）----
+    transcript_path = None
+    if raw_details is not None:
+        doc_content, transcript_count = gen_transcript_doc(nickname, raw_details)
+        if doc_content and transcript_count > 0:
+            transcript_filename = f"{safe_name}_口播逐字稿.md"
+            transcript_path = os.path.join(output_dir, transcript_filename)
+            with open(transcript_path, "w", encoding="utf-8") as f:
+                f.write(doc_content)
+            print(f"  🎙 口播逐字稿（{transcript_count}条）: {transcript_path}")
 
     # === 产出文件校验 ===
     expected_files = [task_rel_path]
@@ -2063,7 +2424,7 @@ def deep_analyze(analysis_path, nickname, output_dir, notes_details_path=None, m
         print("\n🚨 产出文件不完整，请检查上方错误信息并重试。")
         sys.exit(1)
 
-    return {"task_path": task_path}
+    return {"task_path": task_path, "transcript_path": transcript_path}
 
 
 # ----------------------------------------------------------

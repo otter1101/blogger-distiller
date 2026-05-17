@@ -279,6 +279,7 @@ def analyze_notes(details_path, self_details_path=None):
         else:
             tags = extract_tags(content.get("desc", ""))
 
+        _transcript = item.get("transcript") or {}
         notes.append({
             "id": content.get("noteId") or content.get("aweme_id") or item.get("_feed_id", ""),
             "title": content.get("title", content.get("displayTitle", "")),
@@ -295,6 +296,8 @@ def analyze_notes(details_path, self_details_path=None):
             "tags": tags,
             "category": "",  # 先留空，后面动态分类
             "time": content.get("time", 0),
+            "transcript": _transcript.get("text", ""),
+            "has_transcript": bool(_transcript.get("text")),
         })
     
     # 动态构建标签聚类 → 内容分类
@@ -477,6 +480,8 @@ if __name__ == "__main__":
                 "tags": n["tags"],
                 "category": n["category"],
                 "time": n["time"],
+                "transcript": n.get("transcript", ""),
+                "has_transcript": n.get("has_transcript", False),
             })
         save_data = {k: v for k, v in result.items() if k != "notes"}
         save_data["notes"] = save_notes

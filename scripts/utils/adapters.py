@@ -514,6 +514,14 @@ def note_detail_app_v2(raw, args):
     user_raw = _pick(note_raw, "user") or {}
     video_raw = _pick(note_raw, "video") or {}
 
+    # 从 video.stream.h264/h265 提取播放 URL
+    _stream = video_raw.get("stream", {})
+    _h264_list = _stream.get("h264", []) or _stream.get("h265", [])
+    _video_url = ""
+    if _h264_list and isinstance(_h264_list, list):
+        _video_url = (_h264_list[0].get("masterUrl", "")
+                      or _h264_list[0].get("master_url", ""))
+
     note_card = {
         "type": _pick(note_raw, "type") or "normal",
         "title": _pick(note_raw, "title", "display_title", "displayTitle") or "",
@@ -529,6 +537,7 @@ def note_detail_app_v2(raw, args):
         "tagList": _extract_tags(note_raw),
         "imageList": _extract_image_list(note_raw),
         "video": video_raw,
+        "videoUrl": _video_url,
         "atUserList": _pick(note_raw, "atUserList", "at_user_list", "ats") or [],
         # 保留评论到外部便于下游提取
         "_comments": {"list": comment_list},
@@ -880,7 +889,8 @@ def _dy_video_item(v: dict) -> dict:
         "author_id": _pick(author, "sec_uid", "uid", default=""),
         "author_name": _pick(author, "nickname", "name", default=""),
         "create_time": str(item.get("create_time", "")),
-        "video_url": (video.get("play_addr") or {}).get("url_list", [""])[0] or "",
+        "video_url": ((video.get("play_addr_h264") or video.get("play_addr") or {})
+                      .get("url_list", [""])[0] or ""),
         "duration": str(video.get("duration", "")),
         "music_title": music.get("title", ""),
         "tags": [t.get("hashtag_name", "") for t in (item.get("text_extra") or [])

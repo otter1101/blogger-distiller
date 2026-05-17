@@ -194,20 +194,20 @@
         "_note": "需要 xsec_token，作为备选"
       },
       {
-        "group": "web_v2",
-        "path": "/api/v1/xiaohongshu/web_v2/fetch_feed_notes_v2",
-        "method": "GET",
-        "params": {"note_id": "${note_id}"},
-        "adapter": "note_detail_web_v2",
-        "_note": "2026-04-23 实测400，降为备选"
-      },
-      {
         "group": "app_v2",
         "path": "/api/v1/xiaohongshu/app_v2/get_video_note_detail",
         "method": "GET",
         "params": {"note_id": "${note_id}"},
         "adapter": "note_detail_app_v2",
-        "_note": "长期400，末位兜底"
+        "_note": "2026-05-12 提至web_v2之前：视频专属端点，能返回视频流URL；feed端点永远无法返回视频URL"
+      },
+      {
+        "group": "web_v2",
+        "path": "/api/v1/xiaohongshu/web_v2/fetch_feed_notes_v2",
+        "method": "GET",
+        "params": {"note_id": "${note_id}"},
+        "adapter": "note_detail_web_v2",
+        "_note": "末位兜底：feed端点，有正文和互动数据，无视频流URL"
       }
     ],
 

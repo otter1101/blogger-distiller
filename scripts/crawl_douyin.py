@@ -433,7 +433,7 @@ def fetch_video_comments_batch(details, client, max_comments_per_video=20):
 # ----------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------
-def crawl_douyin(keyword=None, user_id=None, output_dir=None, token=None, max_videos=50):
+def crawl_douyin(keyword=None, user_id=None, output_dir=None, token=None, max_videos=50, transcript=False):
     """
     完整爬取一个抖音博主的全量作品数据。
 
@@ -503,6 +503,31 @@ def crawl_douyin(keyword=None, user_id=None, output_dir=None, token=None, max_vi
     # 采集评论
     details, comments_fetched = fetch_video_comments_batch(details, client)
 
+    # 视频口播转写（可选）
+    if transcript:
+        from utils.transcript import get_whisper_model, transcribe_batch
+        print(f"\n{'='*60}")
+        print(f"🎙 开始视频口播转写（Whisper）")
+        print(f"{'='*60}")
+        model = get_whisper_model()
+        if model:
+            details, transcript_status = transcribe_batch(
+                details,
+                url_extractor=lambda e: e.get("video", {}).get("videoUrl", ""),
+                model=model,
+            )
+            if transcript_status == "url_expired":
+                expired_path = os.path.join(output_dir, f"{safe_name}_videos_details.json")
+                save_json(details, expired_path)
+                print(f"\n📁 缓存文件路径：{expired_path}")
+                print("请告诉我是否要删除这个文件并重新采集。")
+                return {
+                    "profile": profile, "videos_list": videos_list,
+                    "details": details, "nickname": nickname,
+                    "user_id": user_id, "output_dir": output_dir,
+                    "transcript_status": "url_expired",
+                }
+
     # 保存详情
     details_path = os.path.join(output_dir, f"{safe_name}_videos_details.json")
     save_json(details, details_path)
@@ -534,6 +559,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", "-o", default=".", help="数据输出目录")
     parser.add_argument("--token", help="TikHub API Token")
     parser.add_argument("--max-videos", type=int, default=50, help="最大爬取视频数（默认50）")
+    parser.add_argument("--transcript", action="store_true", help="开启视频口播转写（需要 Whisper）")
     args = parser.parse_args()
 
     if not args.keyword and not args.user_id:
@@ -552,6 +578,7 @@ if __name__ == "__main__":
         output_dir=args.output,
         token=token,
         max_videos=args.max_videos,
+        transcript=args.transcript,
     )
     elapsed = time.time() - start
 

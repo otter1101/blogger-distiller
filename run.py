@@ -12,6 +12,7 @@
 
 import sys
 import os
+import json
 import argparse
 import subprocess
 
@@ -49,8 +50,19 @@ def run_phase(phase_name, cmd, cwd=None):
     print(f"✅ {phase_name} 完成")
 
 
+def _load_tikhub_config() -> dict:
+    config_file = os.path.join(os.path.expanduser("~"), ".xiaohongshu", "tikhub_config.json")
+    if os.path.isfile(config_file):
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
 def prompt_phase_0_5():
-    """展示操作手册要求的前置交互，并返回 (mode, max_notes, platform)。"""
+    """展示操作手册要求的前置交互，并返回 (mode, max_notes, platform, transcript_enabled)。"""
     print()
     print("─────────────────────────────────────")
     print("🎯 欢迎使用博主蒸馏器！")
@@ -118,7 +130,33 @@ def prompt_phase_0_5():
             break
         print("请输入 1 / 2 / 3。")
 
-    return user_mode, max_notes, platform
+    # 第四步：是否开启视频口播提取（仅当 Whisper 可用时询问）
+    print()
+    cfg = _load_tikhub_config()
+    whisper_available = cfg.get("whisper_available", False)
+    transcript_enabled = False
+
+    if not whisper_available:
+        print("💡 提示：未检测到 Whisper（视频口播提取功能）")
+        print("   安装后可提取视频里说了什么，显著提升蒸馏质量")
+        print("   安装方法：pip install openai-whisper && brew install ffmpeg")
+        print("   重新运行后即可开启此功能")
+    else:
+        model_name = cfg.get("whisper_model", "base")
+        model_sizes = {"tiny": 39, "base": 74, "small": 244, "medium": 769}
+        model_size = model_sizes.get(model_name, 74)
+        print("🎙 是否提取视频口播内容？")
+        print(f"   当前已分析：博主简介、笔记标题、正文、点赞收藏、评论")
+        print(f"   开启后额外提取：视频里说了什么（口播文字）")
+        print(f"   代价：每条视频多消耗约 8-12s 转写时间 + 蒸馏时消耗更多 AI Token")
+        print(f"   使用模型：Whisper {model_name}（约占用 {model_size}MB 内存）")
+        print(f"   [y] 开启口播提取")
+        print(f"   [N] 跳过（默认）")
+        transcript_choice = input("请选择：\n").strip().lower()
+        transcript_enabled = transcript_choice == "y"
+
+    print("─────────────────────────────────────")
+    return user_mode, max_notes, platform, transcript_enabled
 
 
 def main():
@@ -183,12 +221,16 @@ def main():
     # ----------------------------------------------------------
     # Phase 0.5: 前置交互
     # ----------------------------------------------------------
-    user_mode, max_notes, platform = prompt_phase_0_5()
+    user_mode, max_notes, platform, transcript_enabled = prompt_phase_0_5()
 
     print()
     print(f"✅ 平台: {'小红书' if platform == 'xhs' else '抖音'}")
     print(f"✅ 模式选择: {user_mode}")
     print(f"✅ 采集数量: {max_notes} 条")
+    if transcript_enabled:
+        print(f"✅ 视频转写: 开启（Whisper，视频口播将被提取）")
+    else:
+        print(f"✅ 视频转写: 关闭（已含简介/标题/正文/评论，不含口播）")
 
     # ----------------------------------------------------------
     # Phase 1: 数据采集 — 目标博主
@@ -203,6 +245,8 @@ def main():
         crawl_cmd.extend(["--token", args.token])
     if args.keywords:
         crawl_cmd.extend(["--keywords", args.keywords])
+    if transcript_enabled:
+        crawl_cmd.append("--transcript")
 
     run_phase("Phase 1: 数据采集 — 目标博主", crawl_cmd)
 
