@@ -153,13 +153,28 @@ def _extract_users_from_search_users(data):
 
 def find_blogger(client, keyword):
     """通过搜索用户精准定位目标博主，返回 (user_id, nickname, xsec_token)
-    
+
     匹配策略（按优先级）：
-    1. 【首选】调用 search_users 端点，直接搜用户名精准匹配
-    2. 【兜底】若 search_users 失败，回退到 search_notes 交叉定位
+    1. 【直接匹配】若 keyword 是 24 位十六进制字符串（即 user_id），直接调用 fetch_user_info，跳过搜索
+    2. 【首选】调用 search_users 端点，直接搜用户名精准匹配
+    3. 【兜底】若 search_users 失败，回退到 search_notes 交叉定位
     """
     print(f"\n🔍 搜索博主: {keyword}")
-    
+
+    # ========== 新增：直接匹配 user_id（24位十六进制）==========
+    if re.fullmatch(r"[0-9a-fA-F]{24}", keyword):
+        print(f"  🎯 检测到 user_id 格式，直接获取用户信息（跳过搜索）")
+        try:
+            user_raw = client.fetch_user_info(keyword)
+            user_data = user_raw.get("data", user_raw)
+            if isinstance(user_data, dict) and "data" in user_data:
+                user_data = user_data["data"]
+            basic = user_data.get("basic_info") or user_data.get("basicInfo") or user_data.get("user") or user_data
+            nickname = basic.get("nickname") or basic.get("nick_name") or keyword[:8]
+            print(f"  ✅ user_id 直接匹配: {nickname} (ID: {keyword})")
+            return keyword, nickname, ""
+        except Exception as e:
+            print(f"  ⚠️ user_id 直接获取失败({e})，继续搜索流程")
     # ========== 首选：search_users 精准匹配 ==========
     try:
         user_data = client.search_users(keyword)
@@ -508,7 +523,16 @@ def search_supplement(client, keyword, user_id, existing_notes, extra_keywords=N
 # Step 4: 逐条获取详情
 # ----------------------------------------------------------
 def get_all_details(client, notes_dict, output_dir, blogger_name, transcript=False):
-    """逐条获取笔记详情，每10条checkpoint，支持断点恢复"""
+    """逐条获取笔记详情，每10条checkpoint，支持断点恢复
+
+    ⚠️ 重要：必须在函数开头清空 detail 类别死链缓存，
+    防止之前用占位 ID 探测导致端点被误标为失效。
+    """
+    # 🔄 清空 detail 类别死链缓存（修复：探测占位ID → 400 导致端点全部失效）
+    if hasattr(client, '_router') and hasattr(client._router, '_dead_endpoints'):
+        client._router._dead_endpoints.clear()
+        print(f"  🔄 已清空 detail 端点死链缓存")
+
     notes_list = sorted(notes_dict.values(), key=lambda x: x.get("likedCount", 0), reverse=True)
     total = len(notes_list)
     checkpoint_path = os.path.join(output_dir, f"{safe_filename(blogger_name)}_details_partial.json")

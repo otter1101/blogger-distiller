@@ -593,6 +593,26 @@ python scripts/deep_analyze.py ./data/<博主名>_analysis.json "<博主名>" \
 
 ---
 
+## 已修复的 Bug
+
+### Bug #1：传入 user_id 仍走搜索流程
+
+**症状**：用户直接传入 24 位十六进制 `user_id`（如 `5b8730d27fb2ce0001f9216c`），脚本仍调用 `search_users` 搜索，可能匹配到错误博主。
+
+**原因**：`find_blogger()` 没有识别 user_id 格式的逻辑，一律走搜索匹配。
+
+**修复**（已合入 `crawl_xhs.py`）：在搜索前增加正则判断——若 keyword 匹配 `[0-9a-fA-F]{24}`，直接调用 `fetch_user_info` 获取用户信息，跳过搜索。
+
+### Bug #2：detail 端点死链缓存导致全部失败
+
+**症状**：采集笔记详情时，前几条正常，之后突然所有 detail 端点全部返回失败，即使换端点也不行。
+
+**原因**：Endpoint Router 内部维护了 `_dead_endpoints` 缓存。在搜索阶段，用占位 note_id 探测端点时会触发 400 错误，导致端点被误标记为死链。进入详情阶段时缓存未清空，所有端点继续被视为失效。
+
+**修复**（已合入 `crawl_xhs.py`）：在 `get_all_details()` 函数开头清空 `_dead_endpoints` 和 `_dead_category_groups` 缓存，确保详情阶段从干净状态开始。
+
+---
+
 ## 参考文档
 
 - `references/张咋啦_创作指南.md` — 可作为创作指南类产出结构参考；若与当前 HTML / Skill 文件夹契约冲突，以本文件和操作手册为准
