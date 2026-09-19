@@ -9,11 +9,71 @@ import os
 import re
 import json
 import time
+import html
+import urllib.request
 
 CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".xiaohongshu", "tikhub_config.json")
 
 _model_cache = None  # 懒加载，只加载一次
 _ffmpeg_ready = False  # 只注入一次 PATH
+
+
+def _srt_timestamp_seconds(value: str):
+    """Convert an SRT timestamp such as 00:01:02,500 to seconds."""
+    match = re.fullmatch(r"(\d+):(\d{2}):(\d{2})[,.](\d{3})", value.strip())
+    if not match:
+        return None
+    hours, minutes, seconds, milliseconds = (int(part) for part in match.groups())
+    return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
+
+
+def transcript_from_srt(srt_text: str):
+    """Convert a platform SRT file into the transcript shape used by Whisper."""
+    if not isinstance(srt_text, str) or not srt_text.strip():
+        return None
+
+    text_lines = []
+    duration = 0.0
+    for raw_line in srt_text.splitlines():
+        line = raw_line.strip()
+        if not line or line.isdigit():
+            continue
+        if "-->" in line:
+            end = line.split("-->", 1)[1].strip().split()[0]
+            seconds = _srt_timestamp_seconds(end)
+            if seconds is not None:
+                duration = max(duration, seconds)
+            continue
+        line = html.unescape(re.sub(r"<[^>]+>", "", line)).strip()
+        if line:
+            text_lines.append(line)
+
+    text = "\n".join(text_lines).strip()
+    if not text:
+        return None
+    return {
+        "text": text,
+        "duration": round(duration, 1),
+        "language": "zh-CN",
+        "word_count": len(text),
+        "source": "platform_subtitle",
+    }
+
+
+def transcript_from_subtitle_url(subtitle_url: str):
+    """Download a fresh platform subtitle URL and return a normalized transcript."""
+    if not subtitle_url or not subtitle_url.startswith(("http://", "https://")):
+        return None
+    try:
+        request = urllib.request.Request(
+            subtitle_url,
+            headers={"User-Agent": "Mozilla/5.0 (blogger-distiller subtitle fetcher)"},
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            subtitle_text = response.read(2 * 1024 * 1024).decode("utf-8-sig", errors="replace")
+    except Exception:
+        return None
+    return transcript_from_srt(subtitle_text)
 
 
 def _ensure_ffmpeg_in_path():

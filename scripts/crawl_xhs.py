@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.tikhub_client import TikHubClient, TikHubError
 from utils.common import parse_count, safe_filename
 from utils.privacy import PRIVACY_VERSION, anonymize_note_comments_inplace
+from utils.video_metadata import extract_video_metadata
 from verify import (check_content_completeness, check_note_count,
                     check_time_field, check_duplicates, get_sample_watermark)
 
@@ -569,16 +570,22 @@ def get_all_details(client, notes_dict, output_dir, blogger_name, transcript=Fal
     print(f"\n📖 批量获取 {total} 条笔记详情（已有 {len(already_done_ids)} 条）...")
     print("=" * 60)
 
-    # 视频转写：提前加载模型（只加载一次），失败则静默关闭转写
+    # 视频文字稿：平台字幕优先；只有确实需要时才加载 Whisper。
     _whisper_model = None
+    _whisper_load_attempted = False
     consecutive_transcript_fails = 0  # 连续转写失败计数（超时跳过不计）
     transcript_ok = 0                 # 转写成功条数
     transcript_total = 0              # 视频类型笔记总数
-    if transcript:
-        from utils.transcript import get_whisper_model
-        _whisper_model = get_whisper_model()
-        if _whisper_model is None:
-            print("⚠️ Whisper 模型加载失败，本次跳过口播转写")
+
+    def get_whisper_when_needed():
+        nonlocal _whisper_model, _whisper_load_attempted
+        if not _whisper_load_attempted:
+            from utils.transcript import get_whisper_model
+            _whisper_model = get_whisper_model()
+            _whisper_load_attempted = True
+            if _whisper_model is None:
+                print("⚠️ Whisper 模型加载失败，本次将仅保留可取得的平台字幕")
+        return _whisper_model
 
     for i, note in enumerate(notes_list):
         nid = note["id"]
@@ -677,38 +684,51 @@ def get_all_details(client, notes_dict, output_dir, blogger_name, transcript=Fal
                     },
                     "_feed_id": nid,
                 }
-                # 视频笔记：趁 URL 新鲜立刻转写（XHS 视频 URL 短命）
-                if _whisper_model and str(note_type).lower() == "video":
-                    from utils.transcript import transcribe_from_url, _get_video_duration
+                # 视频笔记：先下载平台中文字幕；只有没有可用字幕时才调用 Whisper。
+                if transcript and str(note_type).lower() == "video":
+                    from utils.transcript import (
+                        _get_video_duration,
+                        transcript_from_subtitle_url,
+                        transcribe_from_url,
+                    )
                     transcript_total += 1
-                    video_url = note_obj.get("videoUrl", "")
-                    # web_v3 原始响应走 video.media.stream.h264[0].masterUrl
-                    if not video_url:
-                        _vraw = note_obj.get("video", {}) or {}
-                        _vstream = (_vraw.get("media", {}) or {}).get("stream", {}) or _vraw.get("stream", {})
-                        _vh264 = _vstream.get("h264", []) or _vstream.get("h265", [])
-                        if _vh264 and isinstance(_vh264, list):
-                            video_url = _vh264[0].get("masterUrl", "") or _vh264[0].get("master_url", "")
-                    if video_url:
-                        # 时长预检：超过 10 分钟跳过，不计入连续失败
-                        duration = _get_video_duration(video_url)
-                        if duration is not None and duration > 600:
-                            mins = int(duration // 60)
-                            unified["_transcript_error"] = "duration_exceeded"
+                    video_metadata = note_obj.pop("_video_metadata", None)
+                    if not isinstance(video_metadata, dict):
+                        video_metadata = extract_video_metadata(note_obj)
+
+                    subtitle_result = transcript_from_subtitle_url(
+                        video_metadata.get("subtitle_url", "")
+                    )
+                    if subtitle_result:
+                        unified["transcript"] = subtitle_result
+                        transcript_ok += 1
+                        consecutive_transcript_fails = 0
+                    else:
+                        video_url = video_metadata.get("video_url", "")
+                        whisper_model = get_whisper_when_needed() if video_url else None
+                        if not whisper_model:
+                            unified["_transcript_error"] = (
+                                "whisper_unavailable" if video_url else "video_url_unavailable"
+                            )
                         else:
-                            transcript_result = transcribe_from_url(video_url, model=_whisper_model)
-                            if transcript_result:
-                                unified["transcript"] = transcript_result
-                                consecutive_transcript_fails = 0
-                                transcript_ok += 1
+                            # 时长预检：超过 10 分钟跳过，不计入连续失败
+                            duration = _get_video_duration(video_url)
+                            if duration is not None and duration > 600:
+                                unified["_transcript_error"] = "duration_exceeded"
                             else:
-                                consecutive_transcript_fails += 1
-                                unified["_transcript_error"] = "transcribe_failed"
-                                if consecutive_transcript_fails >= 5:
-                                    print(f"\n\n⚠️  口播转写连续失败 {consecutive_transcript_fails} 条，可能是 Whisper 或 ffmpeg 遇到了问题。")
-                                    print("笔记内容和评论数据采集不受影响，继续进行。")
-                                    print("本次剩余笔记将跳过转写。如需排查，蒸馏完成后运行 check_env.py 检查环境。")
-                                    _whisper_model = None  # 关闭后续转写，不中断采集
+                                transcript_result = transcribe_from_url(video_url, model=whisper_model)
+                                if transcript_result:
+                                    unified["transcript"] = transcript_result
+                                    consecutive_transcript_fails = 0
+                                    transcript_ok += 1
+                                else:
+                                    consecutive_transcript_fails += 1
+                                    unified["_transcript_error"] = "transcribe_failed"
+                                    if consecutive_transcript_fails >= 5:
+                                        print(f"\n\n⚠️  口播转写连续失败 {consecutive_transcript_fails} 条，可能是 Whisper 或 ffmpeg 遇到了问题。")
+                                        print("笔记内容和评论数据采集不受影响，继续进行。")
+                                        print("本次剩余笔记将跳过转写。如需排查，蒸馏完成后运行 check_env.py 检查环境。")
+                                        _whisper_model = None  # 关闭后续转写，不中断采集
 
                 details.append(unified)
 
@@ -725,6 +745,10 @@ def get_all_details(client, notes_dict, output_dir, blogger_name, transcript=Fal
                     transcript_tag = f" ⏭时长超限"
                 elif unified.get("_transcript_error") == "transcribe_failed":
                     transcript_tag = f" ⚠️转写失败"
+                elif unified.get("_transcript_error") == "whisper_unavailable":
+                    transcript_tag = " ⚠️Whisper不可用"
+                elif unified.get("_transcript_error") == "video_url_unavailable":
+                    transcript_tag = " ⚠️无字幕/无视频地址"
                 else:
                     transcript_tag = ""
                 print(f" ✅ L:{liked} C:{collected}{transcript_tag}")
@@ -883,49 +907,27 @@ def repair_incomplete_notes(details, client):
 # ----------------------------------------------------------
 def _extract_video_url_from_raw(raw):
     """从 TikHub API 原始响应中提取视频流 URL（兼容多种响应结构）"""
-    if not isinstance(raw, dict):
-        return ""
-    data = raw.get("data", raw)
-    if isinstance(data, dict) and "data" in data:
-        data = data["data"]
-    if isinstance(data, list) and data:
-        data = data[0]
-    if not isinstance(data, dict):
-        return ""
-    note_obj = {}
-    items = data.get("items", [])
-    if items and isinstance(items, list):
-        first = items[0] if items else {}
-        note_obj = (first.get("noteCard") or first.get("note_card")
-                    or first.get("note") or {}) if isinstance(first, dict) else {}
-    if not note_obj:
-        note_obj = data.get("note") or data
-    if not isinstance(note_obj, dict):
-        return ""
-    url = note_obj.get("videoUrl", "")
-    if url:
-        return url
-    vraw = note_obj.get("video", {}) or {}
-    vstream = (vraw.get("media", {}) or {}).get("stream", {}) or vraw.get("stream", {})
-    vh264 = vstream.get("h264", []) or vstream.get("h265", [])
-    if vh264 and isinstance(vh264, list):
-        return vh264[0].get("masterUrl", "") or vh264[0].get("master_url", "")
-    return ""
+    return extract_video_metadata(raw)["video_url"]
 
 
 def supplement_video_urls_for_whisper(details, client, transcript):
     """
-    主采集结束后，对 videoUrl 为空的视频笔记补取视频 URL 并立刻转写。
-    直接调用 TikHub API（绕过路由器死链缓存），先试 app，再试 web_v3（需 xsec_token）。
+    主采集结束后，对仍没有文字稿的视频补取详情。
+    先用 App V2 取得平台中文字幕；没有字幕时才取视频 URL 交给 Whisper。
+    仅在 App V2 临时失败且有 xsec_token 时，才使用 Web V3 取得视频 URL。
     仅在 transcript=True 时执行。
     """
     if not transcript:
         return
 
-    from utils.transcript import get_whisper_model, transcribe_from_url, _get_video_duration
-    whisper_model = get_whisper_model()
-    if not whisper_model:
-        return
+    from utils.transcript import (
+        _get_video_duration,
+        get_whisper_model,
+        transcript_from_subtitle_url,
+        transcribe_from_url,
+    )
+    whisper_model = None
+    whisper_load_attempted = False
 
     candidates = [
         (i, d) for i, d in enumerate(details)
@@ -938,7 +940,7 @@ def supplement_video_urls_for_whisper(details, client, transcript):
     if not candidates:
         return
 
-    print(f"\n🎙 视频 URL 补取：尝试 {len(candidates)} 条（绕过死链缓存，直接试 app / web_v3）")
+    print(f"\n🎙 视频文字稿补取：尝试 {len(candidates)} 条（App V2 字幕优先）")
     ok = 0
 
     for idx, (i, entry) in enumerate(candidates, 1):
@@ -949,35 +951,51 @@ def supplement_video_urls_for_whisper(details, client, transcript):
             continue
 
         print(f"  [{idx}/{len(candidates)}] {title}...", end="", flush=True)
-        video_url = ""
+        metadata = {"video_url": "", "subtitle_url": ""}
 
-        # 尝试 1：app 端点（有 token 就带，没有就裸调）
+        # 尝试 1：App V2 视频详情（包含可能存在的平台官网字幕）
         try:
-            params = {"note_id": note_id}
-            if xsec_token:
-                params["xsec_token"] = xsec_token
-            raw = client._request("GET", "/api/v1/xiaohongshu/app/get_note_info", params=params)
-            video_url = _extract_video_url_from_raw(raw)
-            if video_url:
-                print(" app✅", end="", flush=True)
+            raw = client._request(
+                "GET", "/api/v1/xiaohongshu/app_v2/get_video_note_detail",
+                params={"note_id": note_id}, retries=1, delay=2,
+            )
+            metadata = extract_video_metadata(raw)
+            if metadata["subtitle_url"]:
+                subtitle = transcript_from_subtitle_url(metadata["subtitle_url"])
+                if subtitle:
+                    entry["transcript"] = subtitle
+                    ok += 1
+                    print(f" 平台字幕✅{subtitle['word_count']}字")
+                    continue
+            if metadata["video_url"]:
+                print(" app_v2✅", end="", flush=True)
         except Exception:
             pass
 
-        # 尝试 2：web_v3 端点（仅有 xsec_token 时）
-        if not video_url and xsec_token:
+        # 尝试 2：Web V3 只在 App V2 没拿到视频 URL 且有 xsec_token 时使用。
+        if not metadata["video_url"] and xsec_token:
             try:
                 raw = client._request(
                     "GET", "/api/v1/xiaohongshu/web_v3/fetch_note_detail",
-                    params={"note_id": note_id, "xsec_token": xsec_token}
+                    params={"note_id": note_id, "xsec_token": xsec_token}, retries=1, delay=2,
                 )
-                video_url = _extract_video_url_from_raw(raw)
-                if video_url:
+                metadata = extract_video_metadata(raw)
+                if metadata["video_url"]:
                     print(" web_v3✅", end="", flush=True)
             except Exception:
                 pass
 
+        video_url = metadata["video_url"]
         if not video_url:
-            print(" 无URL")
+            print(" 无字幕/无URL")
+            continue
+
+        if not whisper_load_attempted:
+            whisper_model = get_whisper_model()
+            whisper_load_attempted = True
+        if not whisper_model:
+            entry["_transcript_error"] = "whisper_unavailable"
+            print(" Whisper不可用")
             continue
 
         # 时长预检

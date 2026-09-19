@@ -13,6 +13,8 @@ Adapter 归一化层 — 把不同 TikHub 端点族的返回数据统一转成�
 
 import re
 
+from .video_metadata import extract_video_metadata
+
 # ============================================================
 # 工具函数
 # ============================================================
@@ -523,14 +525,7 @@ def note_detail_app_v2(raw, args):
 
     user_raw = _pick(note_raw, "user") or {}
     video_raw = _pick(note_raw, "video") or {}
-
-    # 从 video.stream.h264/h265 提取播放 URL
-    _stream = video_raw.get("stream", {})
-    _h264_list = _stream.get("h264", []) or _stream.get("h265", [])
-    _video_url = ""
-    if _h264_list and isinstance(_h264_list, list):
-        _video_url = (_h264_list[0].get("masterUrl", "")
-                      or _h264_list[0].get("master_url", ""))
+    video_metadata = extract_video_metadata(raw)
 
     note_card = {
         "type": _pick(note_raw, "type") or "normal",
@@ -547,7 +542,9 @@ def note_detail_app_v2(raw, args):
         "tagList": _extract_tags(note_raw),
         "imageList": _extract_image_list(note_raw),
         "video": video_raw,
-        "videoUrl": _video_url,
+        "videoUrl": video_metadata["video_url"],
+        # 只在本次采集过程内使用；下游会在写入结果前取出，避免保存会过期的签名 URL。
+        "_video_metadata": video_metadata,
         "atUserList": _pick(note_raw, "atUserList", "at_user_list", "ats") or [],
         # 保留评论到外部便于下游提取
         "_comments": {"list": comment_list},

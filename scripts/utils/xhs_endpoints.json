@@ -1,9 +1,9 @@
 {
-  "_comment": "小红书（XHS）TikHub 端点池配置 — 每个 pool 至少 3 条链路确保冗余。优先级基于实测可用性动态调整。",
+  "_comment": "小红书（XHS）TikHub 端点池配置。App V2 为默认首选；只保留已验证可用的 Web V3 备用端点。",
   "platform": "xhs",
-  "version": "2.0",
-  "last_updated": "2026-06-15",
-  "_priority_note": "2026-06-15 v2.0: TikHub 通知 6/19 下线 app/* 和 web/*，实测 app_v2 全线200，web_v3 全线400，app 半死（搜索已404），web_v2 全线404。所有池优先级调整为 app_v2 → app（仅残存可用的保留）→ web_v3 → web_v2。",
+  "version": "2.1",
+  "last_updated": "2026-09-19",
+  "_priority_note": "App V2 每次请求自带一次重试。仅博主资料和视频详情在 App V2 临时失败时降级到已实测可用的 Web V3；其余旧 app、web_v2 和失效的 web_v3 端点不再调用。",
 
   "pools": {
     "search_notes": [
@@ -13,31 +13,7 @@
         "method": "GET",
         "params": {"keyword": "${keyword}", "page": "${page}"},
         "adapter": "search_notes_app_v2",
-        "_note": "2026-06-14 实测200，提为首选"
-      },
-      {
-        "group": "web_v3",
-        "path": "/api/v1/xiaohongshu/web_v3/fetch_search_notes",
-        "method": "GET",
-        "params": {"keyword": "${keyword}", "page": "${page}", "sort": "general", "note_type": 0, "num": 20},
-        "adapter": "search_notes_web_v3",
-        "_note": "2026-06-14 实测400，降为兜底"
-      },
-      {
-        "group": "app",
-        "path": "/api/v1/xiaohongshu/app/search_notes",
-        "method": "GET",
-        "params": {"keyword": "${keyword}", "page": "${page}"},
-        "adapter": "search_notes_app",
-        "_note": "2026-06-14 不稳定(IncompleteRead)，即将下线"
-      },
-      {
-        "group": "web_v2",
-        "path": "/api/v1/xiaohongshu/web_v2/fetch_search_notes",
-        "method": "GET",
-        "params": {"keywords": "${keyword}", "page": "${page}", "sort_type": "general", "note_type": 0},
-        "adapter": "search_notes_web_v2",
-        "_note": "2026-06-14 404已下线，末位保留"
+        "_note": "默认首选，2026-09-19 实测可用"
       }
     ],
 
@@ -48,31 +24,7 @@
         "method": "GET",
         "params": {"keyword": "${keyword}", "page": "${page}"},
         "adapter": "search_users_app_v2",
-        "_note": "2026-06-14 实测200，唯一可用"
-      },
-      {
-        "group": "web_v3",
-        "path": "/api/v1/xiaohongshu/web_v3/fetch_search_users",
-        "method": "GET",
-        "params": {"keyword": "${keyword}", "page": "${page}"},
-        "adapter": "search_users_web_v3",
-        "_note": "2026-06-14 实测400"
-      },
-      {
-        "group": "app",
-        "path": "/api/v1/xiaohongshu/app/search_users",
-        "method": "GET",
-        "params": {"keyword": "${keyword}", "page": "${page}"},
-        "adapter": "search_users_app",
-        "_note": "2026-06-14 404已下线"
-      },
-      {
-        "group": "web_v2",
-        "path": "/api/v1/xiaohongshu/web_v2/fetch_search_users",
-        "method": "GET",
-        "params": {"keywords": "${keyword}", "page": "${page}"},
-        "adapter": "search_users_web_v2",
-        "_note": "2026-06-14 404已下线"
+        "_note": "默认首选，2026-09-19 实测可用"
       }
     ],
 
@@ -83,15 +35,7 @@
         "method": "GET",
         "params": {"user_id": "${user_id}"},
         "adapter": "user_info_app_v2",
-        "_note": "2026-06-14 实测200，提为首选"
-      },
-      {
-        "group": "app",
-        "path": "/api/v1/xiaohongshu/app/get_user_info",
-        "method": "GET",
-        "params": {"user_id": "${user_id}"},
-        "adapter": "user_info_app",
-        "_note": "2026-06-14 实测200（仍存活），即将下线"
+        "_note": "默认首选，2026-09-19 实测可用"
       },
       {
         "group": "web_v3",
@@ -99,15 +43,7 @@
         "method": "GET",
         "params": {"user_id": "${user_id}"},
         "adapter": "user_info_web_v3",
-        "_note": "2026-06-14 实测400"
-      },
-      {
-        "group": "web_v2",
-        "path": "/api/v1/xiaohongshu/web_v2/fetch_user_info",
-        "method": "GET",
-        "params": {"user_id": "${user_id}"},
-        "adapter": "user_info_web_v2",
-        "_note": "2026-06-14 404已下线"
+        "_note": "App V2 临时失败时的已验证备用端点"
       }
     ],
 
@@ -118,31 +54,7 @@
         "method": "GET",
         "params": {"user_id": "${user_id}", "cursor": "${cursor}"},
         "adapter": "user_notes_app_v2",
-        "_note": "2026-06-14 补测200，提为首选"
-      },
-      {
-        "group": "web_v3",
-        "path": "/api/v1/xiaohongshu/web_v3/fetch_user_notes",
-        "method": "GET",
-        "params": {"user_id": "${user_id}", "cursor": "${cursor}", "num": 20},
-        "adapter": "user_notes_web_v3",
-        "_note": "2026-06-14 实测200（仍存活）"
-      },
-      {
-        "group": "app",
-        "path": "/api/v1/xiaohongshu/app/get_user_notes",
-        "method": "GET",
-        "params": {"user_id": "${user_id}", "cursor": "${cursor}"},
-        "adapter": "user_notes_app",
-        "_note": "2026-06-14 不稳定(IncompleteRead)，即将下线"
-      },
-      {
-        "group": "web_v2",
-        "path": "/api/v1/xiaohongshu/web_v2/fetch_home_notes",
-        "method": "GET",
-        "params": {"user_id": "${user_id}", "cursor": "${cursor}"},
-        "adapter": "user_notes_web_v2",
-        "_note": "2026-06-14 404已下线"
+        "_note": "默认首选，2026-09-19 实测可用"
       }
     ],
 
@@ -153,31 +65,7 @@
         "method": "GET",
         "params": {"note_id": "${note_id}"},
         "adapter": "note_detail_app_v2",
-        "_note": "2026-06-14 实测200，提为首选"
-      },
-      {
-        "group": "app",
-        "path": "/api/v1/xiaohongshu/app/get_note_info",
-        "method": "GET",
-        "params": {"note_id": "${note_id}"},
-        "adapter": "note_detail_app",
-        "_note": "2026-06-14 不稳定(IncompleteRead)，即将下线"
-      },
-      {
-        "group": "web_v3",
-        "path": "/api/v1/xiaohongshu/web_v3/fetch_note_detail",
-        "method": "GET",
-        "params": {"note_id": "${note_id}", "xsec_token": "${xsec_token}"},
-        "adapter": "note_detail_web_v3",
-        "_note": "2026-06-14 实测400，需 xsec_token"
-      },
-      {
-        "group": "web_v2",
-        "path": "/api/v1/xiaohongshu/web_v2/fetch_feed_notes_v2",
-        "method": "GET",
-        "params": {"note_id": "${note_id}"},
-        "adapter": "note_detail_web_v2",
-        "_note": "2026-06-14 不稳定(IncompleteRead)"
+        "_note": "默认首选，2026-09-19 实测可用"
       }
     ],
 
@@ -188,31 +76,16 @@
         "method": "GET",
         "params": {"note_id": "${note_id}"},
         "adapter": "note_detail_app_v2",
-        "_note": "2026-06-14 实测200，提为首选"
-      },
-      {
-        "group": "app",
-        "path": "/api/v1/xiaohongshu/app/get_note_info",
-        "method": "GET",
-        "params": {"note_id": "${note_id}"},
-        "adapter": "note_detail_app",
-        "_note": "2026-06-14 实测200（仍存活），即将下线"
-      },
-      {
-        "group": "web_v2",
-        "path": "/api/v1/xiaohongshu/web_v2/fetch_feed_notes_v2",
-        "method": "GET",
-        "params": {"note_id": "${note_id}"},
-        "adapter": "note_detail_web_v2",
-        "_note": "2026-06-14 实测200（仍存活），有正文无视频流URL"
+        "_note": "默认首选；包含视频流及可能存在的平台字幕"
       },
       {
         "group": "web_v3",
         "path": "/api/v1/xiaohongshu/web_v3/fetch_note_detail",
         "method": "GET",
         "params": {"note_id": "${note_id}", "xsec_token": "${xsec_token}"},
+        "required_args": ["xsec_token"],
         "adapter": "note_detail_web_v3",
-        "_note": "2026-06-14 实测400"
+        "_note": "仅当 App V2 临时失败且有 xsec_token 时获取视频地址，供 Whisper 兜底"
       }
     ],
 
@@ -223,31 +96,7 @@
         "method": "GET",
         "params": {"note_id": "${note_id}", "cursor": "${cursor}"},
         "adapter": "note_comments_app_v2",
-        "_note": "2026-06-14 补测200，提为首选"
-      },
-      {
-        "group": "web_v2",
-        "path": "/api/v1/xiaohongshu/web_v2/fetch_note_comments",
-        "method": "GET",
-        "params": {"note_id": "${note_id}", "cursor": "${cursor}"},
-        "adapter": "note_comments_web_v2",
-        "_note": "2026-06-14 实测200（仍存活）"
-      },
-      {
-        "group": "app",
-        "path": "/api/v1/xiaohongshu/app/get_note_comments",
-        "method": "GET",
-        "params": {"note_id": "${note_id}", "start": "${cursor}"},
-        "adapter": "note_comments_app",
-        "_note": "2026-06-14 实测400，即将下线"
-      },
-      {
-        "group": "web_v3",
-        "path": "/api/v1/xiaohongshu/web_v3/fetch_note_comments",
-        "method": "GET",
-        "params": {"note_id": "${note_id}", "cursor": "${cursor}"},
-        "adapter": "note_comments_web_v3",
-        "_note": "2026-06-14 实测422(需xsec_token)"
+        "_note": "默认首选，2026-09-19 实测可用"
       }
     ]
   }

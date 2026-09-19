@@ -132,6 +132,13 @@ class EndpointRouter:
                         f"pool '{pool_name}'[{i}] 的 adapter '{ep['adapter']}' "
                         f"未在 adapters.py 中注册"
                     )
+                required_args = ep.get("required_args", [])
+                if not isinstance(required_args, list) or not all(
+                    isinstance(arg, str) and arg for arg in required_args
+                ):
+                    raise ValueError(
+                        f"pool '{pool_name}'[{i}] 的 required_args 必须是非空字符串数组"
+                    )
 
         return pools
 
@@ -149,6 +156,11 @@ class EndpointRouter:
                 # 静态值（如 "sort": "general"）
                 rendered[k] = v
         return rendered
+
+    @staticmethod
+    def _has_required_args(endpoint, args):
+        """Return whether this endpoint has every explicitly required argument."""
+        return all(args.get(name) not in (None, "") for name in endpoint.get("required_args", []))
 
     def _ep_key(self, ep):
         """生成端点唯一标识"""
@@ -220,6 +232,11 @@ class EndpointRouter:
 
             # 补调时跳过已用端点
             if self._ep_key(ep) in skip_set:
+                continue
+
+            # 例如 web_v3 视频详情必须有 xsec_token；缺失时不要发出一个
+            # 注定失败且会消耗额度的请求。
+            if not self._has_required_args(ep, args):
                 continue
 
             # 渲染参数
@@ -361,6 +378,9 @@ class EndpointRouter:
             for ep in endpoints:
                 group = ep["group"]
                 path = ep["path"]
+                if ep.get("required_args"):
+                    pool_report.append((group, path, "⏭ 需要真实凭证", 0))
+                    continue
                 start = time.time()
                 try:
                     # 用最简参数做探测
@@ -423,7 +443,15 @@ class EndpointRouter:
                 if group in probed:
                     continue
                 probed.add(group)
-                
+
+                # 例如 Web V3 视频详情必须使用该笔记自己的 xsec_token。
+                # 启动探测没有真实凭证，不能为此额外消耗一次无效请求，也不能把
+                # 该备用路线误判为死链。
+                if ep.get("required_args"):
+                    result[group] = (True, 99999)
+                    print(f"  ⏭️ {group:8s} | 需真实凭证 | {label}")
+                    continue
+
                 test_params = {}
                 for k, v in ep["params"].items():
                     if isinstance(v, str) and v.startswith("${"):
