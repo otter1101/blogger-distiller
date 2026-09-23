@@ -134,6 +134,18 @@ def analyze_content_structure(descs):
     return results
 
 
+def get_analysis_texts(raw_details):
+    """返回用于内容统计的文本：视频优先口播，缺失时回退笔记正文。"""
+    texts = []
+    for item in raw_details or []:
+        if "_error" in item:
+            continue
+        note = item.get("note") or item.get("data", {}).get("note") or item
+        transcript = (item.get("transcript") or {}).get("text", "")
+        texts.append(transcript or note.get("desc", ""))
+    return texts
+
+
 def detect_posting_frequency(notes_with_time):
     """分析发布频率模式"""
     timestamps = sorted([int(n["time"]) for n in notes_with_time if int(n.get("time") or 0) > 0])
@@ -2300,7 +2312,7 @@ def deep_analyze(analysis_path, nickname, output_dir, notes_details_path=None, m
         for item in raw_details:
             if "_error" in item:
                 continue
-            note = item.get("data", {}).get("note", item)
+            note = item.get("note") or item.get("data", {}).get("note") or item
             full_notes.append(note)
 
         # === 数据校验（自动运行）===
@@ -2316,7 +2328,7 @@ def deep_analyze(analysis_path, nickname, output_dir, notes_details_path=None, m
     titles = [n["title"] for n in (notes or top10) if n.get("title")]
     descs = []
     if full_notes:
-        descs = [n.get("desc", "") for n in full_notes]
+        descs = get_analysis_texts(raw_details)
     elif top10:
         descs = [n.get("desc", "") for n in top10]
 
